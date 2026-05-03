@@ -1,0 +1,97 @@
+services:
+
+  # =====================
+  # ORDER SERVICE (.NET)
+  # =====================
+  order-service:
+    build: ./order-service
+    ports:
+      - "5001:80"
+    depends_on:
+      - sqlserver
+      - rabbitmq
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=OrderDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;Encrypt=False;
+      - ASPNETCORE_URLS=http://+:80
+      - RabbitMq__Host=rabbitmq
+      - RabbitMq__Port=5672
+      - RabbitMq__Username=guest
+      - RabbitMq__Password=guest
+
+  # =====================
+  # FRAUD SERVICE (FASTAPI)
+  # =====================
+  fraud-service:
+    build: ./fraud-service
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongodb
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/fraud_db
+
+  # =====================
+  # SQL SERVER
+  # =====================
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      SA_PASSWORD: "YourStrong!Passw0rd"
+      ACCEPT_EULA: "Y"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sql_data:/var/opt/mssql
+
+  # =====================
+  # MONGODB
+  # =====================
+  mongodb:
+    image: mongo:6
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      
+
+  # =====================
+  # RABBITMQ
+  # =====================
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"   # comunicação entre serviços
+      - "15672:15672" # interface web
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+
+  # =====================
+  # MONGO EXPRESS (UI)
+  # =====================
+  mongo-express:
+    image: mongo-express
+    ports:
+      - "8081:8081"
+    depends_on:
+      - mongodb
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+
+  # =====================
+  # DBGATE (SQL UI PROFISSIONAL)
+  # =====================
+  dbgate:
+    image: dbgate/dbgate
+    ports:
+      - "3000:3000"
+    volumes:
+      - dbgate_data:/root/.dbgate
+
+volumes:
+  sql_data:
+  mongo_data:
+  dbgate_data:
