@@ -87,15 +87,22 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
     private void DeclareTopology()
     {
         if (_channel is null || _channel.IsClosed)
-            throw new InvalidOperationException("Channel unavailable for topology declaration.");
+            throw new InvalidOperationException("Channel unavailable.");
 
         // Exchanges
-        _channel.ExchangeDeclare("order.events", ExchangeType.Direct, durable: true, autoDelete: false);
-        _channel.ExchangeDeclare("fraud.events", ExchangeType.Direct, durable: true, autoDelete: false);
+        _channel.ExchangeDeclare("order.events", ExchangeType.Direct, durable: true);
+        _channel.ExchangeDeclare("fraud.events", ExchangeType.Direct, durable: true);
 
         // DLQs (sem argumentos - filas simples de erro)
         _channel.QueueDeclare("fraud.analysis.dlq", durable: true, exclusive: false, autoDelete: false);
-        _channel.QueueDeclare("order.result.dlq",   durable: true, exclusive: false, autoDelete: false);
+        _channel.QueueDeclare("order.result.dlq", durable: true, exclusive: false, autoDelete: false);
+
+        var fraudQueueArgs = new Dictionary<string, object>
+        {
+            { "x-dead-letter-exchange", "" },
+            { "x-dead-letter-routing-key", "fraud.analysis.dlq" },
+            { "x-message-ttl", 30_000 } // 30 segundos
+        }; 
 
         // Filas principais com DLQ configurada
         _channel.QueueDeclare(
@@ -103,12 +110,8 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
             durable: true,
             exclusive: false,
             autoDelete: false,
-            arguments: new Dictionary<string, object>
-            {
-                ["x-dead-letter-exchange"]    = "",
-                ["x-dead-letter-routing-key"] = "fraud.analysis.dlq",
-                ["x-message-ttl"]             = 30_000
-            });
+            arguments: fraudQueueArgs
+        );
 
         _channel.QueueDeclare(
             queue: "order.result.queue",
@@ -117,15 +120,15 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
             autoDelete: false,
             arguments: new Dictionary<string, object>
             {
-                ["x-dead-letter-exchange"]    = "",
+                ["x-dead-letter-exchange"] = "",
                 ["x-dead-letter-routing-key"] = "order.result.dlq",
-                ["x-message-ttl"]             = 30_000
+                ["x-message-ttl"] = 30_000
             });
 
         // Bindings
         _channel.QueueBind("fraud.analysis.queue", "order.events", "order.created");
-        _channel.QueueBind("order.result.queue",   "fraud.events", "order.approved");
-        _channel.QueueBind("order.result.queue",   "fraud.events", "order.rejected");
+        _channel.QueueBind("order.result.queue", "fraud.events", "order.approved");
+        _channel.QueueBind("order.result.queue", "fraud.events", "order.rejected");
 
         _logger.LogInformation("RabbitMQ topology declared.");
     }
@@ -147,22 +150,22 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         {
             // Cria properties DENTRO do lock - canal garantido
             var properties = _channel!.CreateBasicProperties();
-            properties.ContentType  = "application/json";
+            properties.ContentType = "application/json";
             properties.DeliveryMode = 2;  // persistent
-            properties.MessageId    = Guid.NewGuid().ToString();
-            properties.Timestamp    = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-            properties.Type         = typeof(TEvent).Name;
-            properties.AppId        = "order-service";
+            properties.MessageId = Guid.NewGuid().ToString();
+            properties.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            properties.Type = typeof(TEvent).Name;
+            properties.AppId = "order-service";
 
             // Reset da flag antes de publicar
             _lastMessageReturned = false;
 
             _channel.BasicPublish(
-                exchange:        exchange,
-                routingKey:      routingKey,
-                mandatory:       true,   // RabbitMQ devolve se não houver binding
+                exchange: exchange,
+                routingKey:  routingKey,
+                mandatory: true,   // RabbitMQ devolve se não houver binding
                 basicProperties: properties,
-                body:            body);
+                body: body);
 
             // Aguarda confirmação do broker (ack/nack)
             var confirmed = _channel.WaitForConfirms(TimeSpan.FromSeconds(5));
