@@ -8,8 +8,10 @@ services:
     ports:
       - "5001:80"
     depends_on:
-      - sqlserver
-      - rabbitmq
+      sqlserver:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=OrderDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;Encrypt=False;
@@ -43,6 +45,12 @@ services:
       - "1433:1433"
     volumes:
       - sql_data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -Q 'SELECT 1' -No -C || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   # =====================
   # MONGODB
@@ -66,6 +74,14 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+    - rabbitmq_data:/var/lib/rabbitmq 
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   # =====================
   # MONGO EXPRESS (UI)
@@ -95,3 +111,4 @@ volumes:
   sql_data:
   mongo_data:
   dbgate_data:
+  rabbitmq_data:
