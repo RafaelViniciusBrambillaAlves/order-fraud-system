@@ -1,82 +1,152 @@
-import json 
+import json
+import traceback 
 import pika
 import time
 import logging
-
+import asyncio
 from app.schemas.order_created_event import OrderCreatedEvent
 from app.application.handlers.order_created_handler import handle_order_created
+from app.core.settings import settings
+from functools import partial
+from app.messaging.publishers.order_analyzed_publisher_interface import IOrderAnalyzedPublisher
+from app.domain.repositories.order_repository_interface import IOrderRepository
 
 logging.basicConfig(level = logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)    
 
-def callback(ch, method, properties, body):
+EXCHANGE = "order.events"
+QUEUE = "fraud.analysis.queue"
+ROUTING_KEY = "order.created"
+DLQ_ROUTING_KEY = "fraud.analysis.dlq"
+
+def _callback(
+        ch, 
+        method, 
+        properties, 
+        body, 
+        loop, 
+        repository, 
+        publisher: IOrderAnalyzedPublisher
+) -> None:
+    
     try:
-        logger.info(f"[x] Received Message: {method.routing_key}")
-        data = json.loads(body)
-        event = OrderCreatedEvent(**data)
+        logger.info(
+            "OrderCreatedConsumer | Received | routing_key=%s",
+            method.routing_key
+        )
 
-        handle_order_created(event)
+        event = OrderCreatedEvent(**json.loads(body))
+
+        future = asyncio.run_coroutine_threadsafe(
+           handle_order_created(event, repository, publisher), 
+           loop
+        )
+    
+        future.result()
 
         ch.basic_ack(delivery_tag = method.delivery_tag)
-        logger.info(f"[x] Message Processed: {method.routing_key}")
+        logger.info(
+            "OrderCreatedConsumer | Processed | order_id=%s",
+            event.order_id,
+        )
 
     except Exception as e:
-        logger.error(f"[!] Error processing message: {e}")
+        logger.error(
+            "OrderCreatedConsumer | Failed | routing_key=%s | error=%s",
+            method.routing_key,
+            e,
+        )
+        logger.error(traceback.format_exc())
 
         ch.basic_nack(delivery_tag = method.delivery_tag, requeue = False)
 
 
-def start_consumer():
-    while True: 
-        try:
-            connection = pika.BlockingConnection(
-                pika.ConnectionParameters(
-                    host = 'rabbitmq',
-                    heartbeat = 60,
-                    blocked_connection_timeout = 300
-                )
-            )
-            break
-
-        except pika.exceptions.AMQPConnectionError:
-            logger.warning("[!] RabbitMQ not available, retrying in 5 seconds...")
-            time.sleep(5)
+def _setup_channel(
+    connection: pika.BlockingConnection, 
+    loop: asyncio.AbstractEventLoop, 
+    repository: IOrderRepository,
+    publisher: IOrderAnalyzedPublisher
+) -> pika.adapters.blocking_connection.BlockingChannel:
     
     channel = connection.channel()
 
-    queue_args = {
-        "x-dead-letter-exchange": "",
-        "x-dead-letter-routing-key": "fraud.analysis.dlq",
-        "x-message-ttl": 30000
-    }
-
     # Exchange
     channel.exchange_declare(
-        exchange = "order.events", 
+        exchange = EXCHANGE, 
         exchange_type = "direct", 
         durable = True
     )
 
     # Queue
     channel.queue_declare(
-        queue = "fraud.analysis.queue", 
+        queue = QUEUE, 
         durable = True,
-        arguments = queue_args
+        arguments = {
+            "x-dead-letter-exchange": "",
+            "x-dead-letter-routing-key": DLQ_ROUTING_KEY    ,
+            "x-message-ttl": 30000
+        }
     )
 
     channel.queue_bind(
-        exchange = "order.events",
-        queue = "fraud.analysis.queue",
-        routing_key = "order.created" 
+        exchange = EXCHANGE,
+        queue = QUEUE,
+        routing_key = ROUTING_KEY 
     )
 
     channel.basic_qos(prefetch_count = 1)
 
     channel.basic_consume(
-        queue = "fraud.analysis.queue",
-        on_message_callback = callback,
+        queue = QUEUE,
+        on_message_callback = partial(
+            _callback, 
+            loop = loop, 
+            repository = repository,
+            publisher = publisher
+        ),
         auto_ack = False
     )
 
-    print("[*] Waiting for order created events...")
-    channel.start_consuming()
+    return channel
+
+def start_consumer(
+    loop: asyncio.AbstractEventLoop, 
+    repository: IOrderRepository, 
+    publisher: IOrderAnalyzedPublisher
+) -> None:
+    while True: 
+        try:
+            connection = pika.BlockingConnection(
+                pika.ConnectionParameters(
+                    host = settings.rabbitmq_host,
+                    heartbeat = settings.rabbit_heartbeat,
+                    blocked_connection_timeout = 300
+                )
+            )
+
+            channel = _setup_channel(connection, loop, repository, publisher)
+            
+            logger.info("OrderCreatedConsumer | Waiting for events | queue=%s", QUEUE)
+
+            channel.start_consuming()
+
+        except (
+            pika.exceptions.AMQPConnectionError,
+            pika.exceptions.ConnectionClosedByBroker,
+            pika.exceptions.ChannelClosedByBroker
+        ) as e:
+            logger.warning(
+                "OrderCreatedConsumer | Connection lost | reason=%s | retrying in 5s",
+                e.__class__.__name__,
+            )
+            time.sleep(5)
+
+        except Exception as e:
+            logger.error(
+                "OrderCreatedConsumer | Unexpected error | error=%s",
+                e,
+            )
+            logger.error(traceback.format_exc())
+            time.sleep(5)
+    
+    

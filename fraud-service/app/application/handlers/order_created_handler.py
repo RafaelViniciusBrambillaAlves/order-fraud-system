@@ -1,13 +1,42 @@
-from app.schemas.order_created_event import OrderCreatedEvent
+import uuid
+from app.domain.entities.order import Order
 from app.application.use_cases.analyze_order import analyze_order
 import logging
+from app.domain.repositories.order_repository_interface import IOrderRepository
+from app.messaging.publishers.order_analyzed_publisher_interface import IOrderAnalyzedPublisher
+from app.schemas.order_analyzed_event import OrderAnalyzedEvent
 
 logger = logging.getLogger(__name__)
 
-def handle_order_created(event: OrderCreatedEvent):
+async def handle_order_created(
+        event, 
+        repository: IOrderRepository,
+        publisher: IOrderAnalyzedPublisher
+    ):
 
-    result = analyze_order(event)
+    fraud_status = analyze_order(event)
 
-    logger.info(f"AUDIT | Order: {event.order_id} | Status: {result} | Amount: {event.amount}")
+    analysis = Order(
+        id = uuid.uuid4(),
+        order_id = event.order_id,
+        amount = event.amount,
+        description = event.description,
+        fraud_status = fraud_status
+    )
 
-    return result
+    await repository.add(analysis)
+
+    logger.info(
+        "AUDIT | order_id=%s | fraud_status=%s | amount=%s",
+        event.order_id,
+        fraud_status,
+        event.amount
+    )
+
+    outbound_event = OrderAnalyzedEvent(
+        order_id = event.order_id,
+        fraud_status = fraud_status
+    )
+
+    await publisher.publish(outbound_event)
+    

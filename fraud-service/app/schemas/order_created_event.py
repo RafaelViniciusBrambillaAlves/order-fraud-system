@@ -7,3 +7,8 @@ class OrderCreatedEvent(BaseModel):
     amount: float 
     description: str
     created_at: datetime = Field(alias = "createdAt")
+
+    model_config = ConfigDict(
+        populate_by_name = True,
+        extra = 'ignore' # Ignora campos extras que o .NET pode envia
+    )
