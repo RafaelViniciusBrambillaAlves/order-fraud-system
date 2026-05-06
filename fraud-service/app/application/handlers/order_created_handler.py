@@ -20,7 +20,6 @@ async def handle_order_created(
         id = uuid.uuid4(),
         order_id = event.order_id,
         amount = event.amount,
-        description = event.description,
         fraud_status = fraud_status
     )
 

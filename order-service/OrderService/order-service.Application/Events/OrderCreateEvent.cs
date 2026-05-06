@@ -6,7 +6,6 @@ namespace order_service.Application.Events;
 public sealed record OrderCreatedEvent(
     Guid OrderId,
     decimal Amount, 
-    string Description,
     DateTime CreatedAt
 )
 {

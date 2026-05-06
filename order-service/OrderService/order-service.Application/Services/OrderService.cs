@@ -34,7 +34,6 @@ public class OrderService : IOrderService
 
         var @event = new OrderCreatedEvent(
             OrderId: order.Id, 
-            Description: order.Description, 
             Amount:order.Amount,
             CreatedAt: DateTime.UtcNow);
 
