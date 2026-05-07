@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class OrderAnalyzedPublisher(IOrderAnalyzedPublisher):
 
-    EXCHANGE_NAME = "order_analyzed_exchange"
+    EXCHANGE_NAME = "fraud.events"
     ROUTING_NAME = "order.analyzed"
 
     def __init__(self) -> None:
@@ -51,7 +51,8 @@ class OrderAnalyzedPublisher(IOrderAnalyzedPublisher):
             delivery_mode = aio_pika.DeliveryMode.PERSISTENT
         )
 
-        await self._exchange.publish(message, routing_key = self.ROUTING_NAME)
+        # await self._exchange.publish(message, routing_key = self.ROUTING_NAME)
+        await self._exchange.publish(message, routing_key = f"order.{event.fraud_status.lower()}")
 
         logger.info(
             "PUBLISH | order_id=%s | fraud_status=%s",
