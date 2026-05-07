@@ -101,7 +101,7 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         {
             { "x-dead-letter-exchange", "" },
             { "x-dead-letter-routing-key", "fraud.analysis.dlq" },
-            { "x-message-ttl", 30_000 } // 30 segundos
+            // { "x-message-ttl", 30_000 } // 30 segundos
         }; 
 
         // Filas principais com DLQ configurada
@@ -122,7 +122,7 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
             {
                 ["x-dead-letter-exchange"] = "",
                 ["x-dead-letter-routing-key"] = "order.result.dlq",
-                ["x-message-ttl"] = 30_000
+                // ["x-message-ttl"] = 30_000
             });
 
         // Bindings

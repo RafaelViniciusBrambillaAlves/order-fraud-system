@@ -6,6 +6,7 @@ using order_service.Infrastructure.Messaging;
 using order_service.Application.Publishers;
 using order_service.Infrastructure.Persistence.Repositories; 
 using order_service.Domain.Repositories;
+using order_service.Application.Subscribers;
 
 namespace order_service.Infrastructure;
 
@@ -46,6 +47,8 @@ public static class InfrastructureModule
             configuration.GetSection(RabbitMqSettings.SectionName));
 
         services.AddSingleton<IEventPublisher, RabbitMqPublisher>();
+
+        services.AddSingleton<IEventSubscriber, RabbitMqSubscriber>();
 
         return services;
     }
