@@ -83,8 +83,8 @@ def _setup_channel(
         durable = True,
         arguments = {
             "x-dead-letter-exchange": "",
-            "x-dead-letter-routing-key": DLQ_ROUTING_KEY    ,
-            "x-message-ttl": 30000
+            "x-dead-letter-routing-key": DLQ_ROUTING_KEY,
+            # "x-message-ttl": 30000
         }
     )
 
