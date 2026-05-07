@@ -10,6 +10,7 @@ public class OrderViewModel
     public decimal Amount { get; set; }
     public string Status { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
+    public DateTime UpdatedAt { get; set; } 
 
     public static OrderViewModel FromEntity(Order order) => new()
     {
@@ -17,6 +18,7 @@ public class OrderViewModel
         Description = order.Description,
         Amount = order.Amount,
         Status = order.Status.ToString(),
-        CreatedAt = order.CreatedAt
+        CreatedAt = order.CreatedAt,
+        UpdatedAt = order.UpdatedAt
     };
 }

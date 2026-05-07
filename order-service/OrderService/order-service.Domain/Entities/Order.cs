@@ -12,12 +12,14 @@ public class Order : EntityBase
         Amount = amount;
         Status = OrderStatus.PENDING;
         CreatedAt = DateTime.UtcNow;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public string Description { get; private set; } = string.Empty;
     public decimal Amount { get; private set; }
     public OrderStatus Status { get; private set; }
     public DateTime CreatedAt { get; private set; }
+    public DateTime UpdatedAt { get; private set; }
 
     public void Approve()
     {
@@ -27,6 +29,7 @@ public class Order : EntityBase
         }
 
         Status = OrderStatus.APPROVED;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void Reject()
@@ -37,6 +40,17 @@ public class Order : EntityBase
         }
         
         Status = OrderStatus.REJECTED;
+        UpdatedAt = DateTime.UtcNow;
     }
+
+    public void UpdateStatus(OrderStatus newStatus)
+    {   
+        if (Status == OrderStatus.APPROVED || Status == OrderStatus.REJECTED)
+            throw new InvalidOperationException(
+                $"Cannot change status of an already finalized order. Current={Status}");
+
+        Status = newStatus;
+        UpdatedAt = DateTime.UtcNow;
+    }  
 
 }
