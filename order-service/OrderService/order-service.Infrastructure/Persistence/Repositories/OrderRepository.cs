@@ -15,7 +15,7 @@ public class OrderRepository : IOrderRepository
 
     public async Task<Order?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
-        return await _context.Orders.AsNoTracking().FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
+        return await _context.Orders.FirstOrDefaultAsync(o => o.Id == id, cancellationToken);
     }
 
     public async Task<IEnumerable<Order>> GetAllAsync(CancellationToken cancellationToken = default)
