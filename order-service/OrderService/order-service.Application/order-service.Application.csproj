@@ -8,15 +8,20 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Folder Include="Events\" />
     <Folder Include="InputModels\" />
     <Folder Include="Publishers\" />
     <Folder Include="Services\" />
+    <Folder Include="Subscribers\" />
     <Folder Include="ViewModels\" />
+    <Folder Include="Workers\" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\order-service.Domain\order-service.Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.0" />
   </ItemGroup>
 
 </Project>
