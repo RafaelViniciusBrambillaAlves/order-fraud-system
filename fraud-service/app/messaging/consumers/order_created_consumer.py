@@ -70,30 +70,6 @@ def _setup_channel(
     
     channel = connection.channel()
 
-    # Exchange
-    channel.exchange_declare(
-        exchange = EXCHANGE, 
-        exchange_type = "direct", 
-        durable = True
-    )
-
-    # Queue
-    channel.queue_declare(
-        queue = QUEUE, 
-        durable = True,
-        arguments = {
-            "x-dead-letter-exchange": "",
-            "x-dead-letter-routing-key": DLQ_ROUTING_KEY,
-            # "x-message-ttl": 30000
-        }
-    )
-
-    channel.queue_bind(
-        exchange = EXCHANGE,
-        queue = QUEUE,
-        routing_key = ROUTING_KEY 
-    )
-
     channel.basic_qos(prefetch_count = 1)
 
     channel.basic_consume(
@@ -116,11 +92,18 @@ def start_consumer(
 ) -> None:
     while True: 
         try:
+            credentials = pika.PlainCredentials(
+                settings.rabbitmq_user,
+                settings.rabbitmq_password
+            )
+
             connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
-                    host = settings.rabbitmq_host,
-                    heartbeat = settings.rabbit_heartbeat,
-                    blocked_connection_timeout = 300
+                    host=settings.rabbitmq_host,
+                    port=settings.rabbitmq_port,
+                    credentials=credentials,
+                    heartbeat=settings.rabbit_heartbeat,
+                    blocked_connection_timeout=300
                 )
             )
 

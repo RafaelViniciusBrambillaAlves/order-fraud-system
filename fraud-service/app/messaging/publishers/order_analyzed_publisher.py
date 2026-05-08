@@ -21,11 +21,7 @@ class OrderAnalyzedPublisher(IOrderAnalyzedPublisher):
     async def connect(self):
         self._connection = await aio_pika.connect_robust(settings.rabbit_url)
         self._channel = await self._connection.channel()
-        self._exchange = await self._channel.declare_exchange(
-            self.EXCHANGE_NAME,
-            aio_pika.ExchangeType.DIRECT,
-            durable=True
-        )
+        self._exchange = await self._channel.get_exchange(self.EXCHANGE_NAME)
 
         logger.info(
             "RabbitMQOrderAnalyzedPublisher | Connected | Exchange: %s",

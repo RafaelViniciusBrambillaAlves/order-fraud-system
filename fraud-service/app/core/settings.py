@@ -6,7 +6,10 @@ class Settings(BaseSettings):
     
     rabbitmq_host: str = "rabbitmq"
     rabbit_heartbeat: int = 60
-    rabbit_url: str = "amqp://guest:guest@rabbitmq:5672/"
+    rabbit_url: str = "amqp://admin:admin123@rabbitmq:5672/"
+    rabbitmq_user: str = "admin"
+    rabbitmq_password: str = "admin123"
+    rabbitmq_port: int = 5672
 
     model_config = SettingsConfigDict(
         env_file = ".env",
