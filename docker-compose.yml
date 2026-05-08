@@ -18,8 +18,8 @@ services:
       - ASPNETCORE_URLS=http://+:80
       - RabbitMq__Host=rabbitmq
       - RabbitMq__Port=5672
-      - RabbitMq__Username=guest
-      - RabbitMq__Password=guest
+      - RabbitMq__Username=admin
+      - RabbitMq__Password=admin123
 
   # =====================
   # FRAUD SERVICE (FASTAPI)
@@ -35,6 +35,11 @@ services:
         condition: service_healthy 
     environment:
       - MONGO_URI=mongodb://mongodb:27017/fraud_db
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=admin
+      - RABBITMQ_PASSWORD=admin123
+      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672/
 
   # =====================
   # SQL SERVER
@@ -79,11 +84,10 @@ services:
     ports:
       - "5672:5672"   # comunicação entre serviços
       - "15672:15672" # interface web
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
     volumes:
     - rabbitmq_data:/var/lib/rabbitmq 
+    - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
       interval: 10s
