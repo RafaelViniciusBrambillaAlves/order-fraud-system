@@ -83,60 +83,8 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
                 prefetchCount: 1, 
                 global: false);
 
-            DeclareTopology();
-
             _logger.LogInformation("RabbitMQ subscriber connected");
         });
-    }
-
-    private void DeclareTopology()
-    {
-        if (_channel is null || _channel.IsClosed)
-            throw new InvalidOperationException("Channel unavailable");
-
-        // Exchanges 
-        _channel.ExchangeDeclare(
-            exchange: "fraud.events",
-            type: ExchangeType.Direct,
-            durable: true
-        );
-
-        // DLQ
-        _channel.QueueDeclare(
-            queue: "order.result.dlq",
-            durable: true,
-            exclusive: false,
-            autoDelete: false
-        );
-
-        // Queue principal 
-        _channel.QueueDeclare(
-            queue: "order.result.queue",
-            durable: true,
-            exclusive: false,
-            autoDelete: false,
-            arguments: new Dictionary<string, object>
-            {
-                ["x-dead-letter-exchange"] = "",
-                ["x-dead-letter-routing-key"] = "order.result.dlq",
-                // ["x-message-ttl"] = 30000
-            }
-        );
-
-        // Bindigs
-        _channel.QueueBind(
-            queue: "order.result.queue",
-            exchange: "fraud.events",
-            routingKey: "order.approved"
-        );
-
-        _channel.QueueBind(
-            queue: "order.result.queue",
-            exchange: "fraud.events",
-            routingKey: "order.rejected"
-        );
-
-        _logger.LogInformation("Subscriber topology declared");
     }
 
     // Subscribe
