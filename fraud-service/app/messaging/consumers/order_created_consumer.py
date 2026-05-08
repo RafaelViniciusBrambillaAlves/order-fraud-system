@@ -99,11 +99,11 @@ def start_consumer(
 
             connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
-                    host=settings.rabbitmq_host,
-                    port=settings.rabbitmq_port,
-                    credentials=credentials,
-                    heartbeat=settings.rabbit_heartbeat,
-                    blocked_connection_timeout=300
+                    host = settings.rabbitmq_host,
+                    port = settings.rabbitmq_port,
+                    credentials = credentials,
+                    heartbeat = settings.rabbitmq_heartbeat,
+                    blocked_connection_timeout = 300
                 )
             )
 

@@ -19,7 +19,7 @@ class OrderAnalyzedPublisher(IOrderAnalyzedPublisher):
         self._exchange: Optional[aio_pika.abc.AbstractExchange] = None
 
     async def connect(self):
-        self._connection = await aio_pika.connect_robust(settings.rabbit_url)
+        self._connection = await aio_pika.connect_robust(settings.rabbitmq_url)
         self._channel = await self._connection.channel()
         self._exchange = await self._channel.get_exchange(self.EXCHANGE_NAME)
 

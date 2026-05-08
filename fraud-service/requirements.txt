@@ -5,3 +5,4 @@ pika
 motor
 pydantic-settings
 aio_pika
+python-dotenv
