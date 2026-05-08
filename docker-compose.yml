@@ -12,14 +12,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__DefaultConnection=Server=sqlserver,1433;Database=OrderDb;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True;Encrypt=False;
-      - ASPNETCORE_URLS=http://+:80
-      - RabbitMq__Host=rabbitmq
-      - RabbitMq__Port=5672
-      - RabbitMq__Username=admin
-      - RabbitMq__Password=admin123
+    env_file:
+      - ./order-service/.env
 
   # =====================
   # FRAUD SERVICE (FASTAPI)
@@ -33,13 +27,8 @@ services:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy 
-    environment:
-      - MONGO_URI=mongodb://mongodb:27017/fraud_db
-      - RABBITMQ_HOST=rabbitmq
-      - RABBITMQ_PORT=5672
-      - RABBITMQ_USER=admin
-      - RABBITMQ_PASSWORD=admin123
-      - RABBITMQ_URL=amqp://admin:admin123@rabbitmq:5672/
+    env_file:
+      - ./fraud-service/.env
 
   # =====================
   # SQL SERVER

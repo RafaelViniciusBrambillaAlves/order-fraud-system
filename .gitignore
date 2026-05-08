@@ -16,11 +16,9 @@ __pycache__/
 *.pyo
 *.pyd
 *.log
-*.sqlite3
 
 venv/
 .env/
-.env.*
 
 docker-compose.override.yml
 *.env
