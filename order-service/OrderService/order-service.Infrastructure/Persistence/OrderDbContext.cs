@@ -11,6 +11,7 @@ public class OrderDbContext : DbContext
     }
 
     public DbSet<Order> Orders { get; set; }
+    public DbSet<OutboxMessage> OutboxMessages { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

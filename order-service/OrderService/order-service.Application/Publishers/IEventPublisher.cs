@@ -11,4 +11,10 @@ public interface IEventPublisher
         CancellationToken cancellationToken = default)
         where TEvent : class;
 
+    Task PublishAsync(
+        string payload,
+        string exchange,
+        string routingKey,
+        CancellationToken cancellationToken = default);
+
 }

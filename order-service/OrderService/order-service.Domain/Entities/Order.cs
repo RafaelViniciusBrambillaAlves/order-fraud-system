@@ -6,7 +6,9 @@ public class Order : EntityBase
 {
     private Order() {}
 
-    public Order(string description, decimal amount)
+    public Order(
+        string description, 
+        decimal amount)
     {
         Description = description;
         Amount = amount;

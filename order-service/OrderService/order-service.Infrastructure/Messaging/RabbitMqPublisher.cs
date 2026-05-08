@@ -1,5 +1,7 @@
+using System.ComponentModel;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using order_service.Application.Publishers;
@@ -18,8 +20,6 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
     private readonly ILogger<RabbitMqPublisher> _logger;
     private readonly object _lock = new();
 
-    // Flag para detectar mensagens não roteadas (mandatory: true)
-    private bool _lastMessageReturned;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -36,6 +36,7 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
                 .Handle<BrokerUnreachableException>()
                 .Handle<ConnectFailureException>()
                 .Handle<InvalidOperationException>()
+                .Handle<IOException>()
         })
         .Build();
 
@@ -45,41 +46,43 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
     {
         _settings = options.Value;
         _logger = logger;
+
         Connect();
     }
 
     // Conexão
     private void Connect()
-    {
-        RetryPipeline.Execute(() =>
-        {
-            _logger.LogInformation(
-                "Connecting to RabbitMQ at {Host}:{Port}...",
-                _settings.Host, _settings.Port);
+    {   
+        lock (_lock){
+            DisposeConnection();
 
-            var factory = new ConnectionFactory
+            RetryPipeline.Execute(() =>
             {
-                HostName = _settings.Host,
-                Port = _settings.Port,
-                UserName = _settings.Username,
-                Password = _settings.Password,
-                AutomaticRecoveryEnabled = true,
-                NetworkRecoveryInterval = TimeSpan.FromSeconds(10),
-                RequestedHeartbeat = TimeSpan.FromSeconds(60),
-                DispatchConsumersAsync = false
-            };
+                _logger.LogInformation(
+                    "Connecting to RabbitMQ at {Host}:{Port}",
+                    _settings.Host,
+                    _settings.Port);
+                
+                var factory = new ConnectionFactory
+                {
+                    HostName = _settings.Host,
+                    Port = _settings.Port,
+                    UserName = _settings.Username,
+                    Password = _settings.Password,
+                    AutomaticRecoveryEnabled = true,
+                    NetworkRecoveryInterval = TimeSpan.FromSeconds(10),
+                    RequestedHeartbeat = TimeSpan.FromSeconds(60)
+                };
 
-            _connection = factory.CreateConnection("order-service-publisher");
-            _channel = _connection.CreateModel();
+                _connection = factory.CreateConnection("order-servce-publish");
 
-            // Publisher Confirms - broker confirma recebimento
-            _channel.ConfirmSelect();
+                _channel = _connection.CreateModel();
 
-            // BasicReturn - captura mensagens não roteadas (mandatory: true)
-            _channel.BasicReturn += OnBasicReturn;
+                _channel.ConfirmSelect();
 
-            _logger.LogInformation("RabbitMQ publisher connected.");
-        });
+                _logger.LogInformation("RabbitMQ publisher connected.");
+            });
+        }
     }
 
     // Publish
@@ -90,64 +93,94 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         CancellationToken cancellationToken = default)
         where TEvent : class
     {
-        EnsureChannelIsOpen();
+       var payload = JsonSerializer.Serialize(@event, JsonOptions);
 
-        var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(@event, JsonOptions));
+       var body = Encoding.UTF8.GetBytes(payload);
 
-        lock (_lock)
-        {
-            // Cria properties DENTRO do lock - canal garantido
-            var properties = _channel!.CreateBasicProperties();
-            properties.ContentType = "application/json";
-            properties.DeliveryMode = 2;  // persistent
-            properties.MessageId = Guid.NewGuid().ToString();
-            properties.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-            properties.Type = typeof(TEvent).Name;
-            properties.AppId = "order-service";
-
-            // Reset da flag antes de publicar
-            _lastMessageReturned = false;
-
-            _channel.BasicPublish(
-                exchange: exchange,
-                routingKey:  routingKey,
-                mandatory: true,   // RabbitMQ devolve se não houver binding
-                basicProperties: properties,
-                body: body);
-
-            // Aguarda confirmação do broker (ack/nack)
-            var confirmed = _channel.WaitForConfirms(TimeSpan.FromSeconds(5));
-
-            if (!confirmed)
-                throw new Exception(
-                    $"Broker did not confirm delivery. Exchange={exchange} RoutingKey={routingKey}");
-
-            // BasicReturn é assíncrono - pequena espera para o evento chegar
-            // Solução simples e suficiente para produção sem overhead de async
-            Thread.Sleep(50);
-
-            if (_lastMessageReturned)
-                throw new Exception(
-                    $"Message returned (no binding). Exchange={exchange} RoutingKey={routingKey}");
-        }
-
-        _logger.LogInformation(
-            "Published | Exchange={Exchange} RoutingKey={RoutingKey} Type={Type}",
-            exchange, routingKey, typeof(TEvent).Name);
-
-        return Task.CompletedTask;
+       return PublishBytesAsync(
+        body,
+        exchange,
+        routingKey,
+        typeof(TEvent).Name,
+        cancellationToken);
     }
 
-    // Handlers internos
-
-    private void OnBasicReturn(object? sender, BasicReturnEventArgs e)
+    public Task PublishAsync(
+        string payload,
+        string exchange,
+        string routingKey,
+        CancellationToken cancellationToken = default)
     {
-        _logger.LogError(
-            "Message RETURNED (unroutable) | Exchange={Exchange} RoutingKey={RoutingKey} ReplyText={Reply}",
-            e.Exchange, e.RoutingKey, e.ReplyText);
+        var body = Encoding.UTF8.GetBytes(payload);
+        
+        return PublishBytesAsync(
+            body,
+            exchange,
+            routingKey,
+            "outbox",
+            cancellationToken);
+    }
 
-        // Sinaliza pro PublishAsync que a mensagem não foi roteada
-        _lastMessageReturned = true;
+    private Task PublishBytesAsync(
+        byte[] body,
+        string exchange,
+        string routingKey,
+        string eventType,
+        CancellationToken cancellationToken = default)
+    {
+        EnsureChannelIsOpen();
+        
+        lock (_lock)
+        {
+            var properties = _channel!.CreateBasicProperties();
+
+            properties.ContentType = "application/json";
+            properties.DeliveryMode = 2;
+            properties.MessageId = Guid.NewGuid().ToString();
+            properties.Timestamp = 
+                new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+
+            properties.Type = eventType;
+            properties.AppId = "order-service";
+
+            try
+            {
+                _channel.BasicPublish(
+                    exchange: exchange,
+                    routingKey: routingKey,
+                    mandatory: false,
+                    basicProperties: properties,
+                    body: body);
+                
+                var confirmed = 
+                    _channel.WaitForConfirms(TimeSpan.FromSeconds(5));
+
+                if (!confirmed)
+                {
+                    throw new Exception(
+                        $"Broker did not confirm message. Exchange={exchange} RoutingKey={routingKey}");
+                }
+
+                _logger.LogInformation(
+                     "Published | Exchange={Exchange} RoutingKey={RoutingKey} Type={Type}",
+                    exchange,
+                    routingKey,
+                    eventType);
+
+            }
+            catch (Exception ex)
+            {
+                _logger.LogInformation(
+                    ex,
+                    "Error publishing message | Exchange={Exchange} RoutingKey={RoutingKey}",
+                    exchange,
+                    routingKey);
+
+                throw;
+            }
+        }
+
+        return Task.CompletedTask;
     }
 
     private void EnsureChannelIsOpen()
@@ -155,34 +188,42 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         if (_channel is not null && _channel.IsOpen)
             return;
 
-        lock (_lock)
-        {
-            if (_channel is not null && _channel.IsOpen)
-                return;
+        _logger.LogWarning("RabbitMQ channel closed. Reconnecting...");
 
-            _logger.LogWarning("Channel is closed. Reconnecting...");
-            Connect();
-        }
+        Connect();
     }
 
     // Dispose
-    public void Dispose()
+    public void DisposeConnection()
     {
         try
         {
             if (_channel is not null)
             {
-                _channel.BasicReturn -= OnBasicReturn;
-                _channel.Close();
+                if (_channel.IsOpen)
+                    _channel.Close();
+
                 _channel.Dispose();
+                _channel = null;
             }
 
-            _connection?.Close();
-            _connection?.Dispose();
+            if (_connection is not null)
+            {
+                if (_connection.IsOpen)
+                    _connection.Close();
+                
+                _connection.Dispose();
+                _connection = null;
+            } 
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error disposing RabbitMQ publisher.");
         }
+    }
+
+    public void Dispose()
+    {
+        DisposeConnection();
     }
 }

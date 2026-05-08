@@ -47,8 +47,9 @@ public static class InfrastructureModule
             configuration.GetSection(RabbitMqSettings.SectionName));
 
         services.AddSingleton<IEventPublisher, RabbitMqPublisher>();
-
         services.AddSingleton<IEventSubscriber, RabbitMqSubscriber>();
+
+        services.AddHostedService<OutboxRelayWorker>();
 
         return services;
     }
@@ -57,6 +58,7 @@ public static class InfrastructureModule
         this IServiceCollection services)
     {
         services.AddScoped<IOrderRepository, OrderRepository>();
+        services.AddScoped<IOutboxRepository, OutboxRepository>();
 
         return services;
     }

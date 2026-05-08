@@ -4,23 +4,30 @@ using order_service.Domain.Entities;
 using order_service.Domain.Repositories;
 using order_service.Application.Events;
 using order_service.Application.Publishers;
+using System.Text.Json;
+using System.ComponentModel;
 
 namespace order_service.Application.Services;
 
 public class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepository;
-    private readonly IEventPublisher _eventPublisher;
+    private readonly IOutboxRepository  _outboxRepository;
 
     private const string OrderEventsExchange  = "order.events";
     private const string OrderCreatedRoutingKey = "order.created";
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public OrderService(
         IOrderRepository orderRepository, 
-        IEventPublisher eventPublisher)
+        IOutboxRepository  outboxRepository)
     {
         _orderRepository = orderRepository;
-        _eventPublisher = eventPublisher;
+        _outboxRepository = outboxRepository;
     }
 
     public async Task<OrderViewModel> CreateAsync(
@@ -29,19 +36,21 @@ public class OrderService : IOrderService
     {
         var order = new Order(input.Description, input.Amount);
 
-        await _orderRepository.AddAsync(order, cancellationToken);
-        await _orderRepository.SaveChangesAsync(cancellationToken);
-
         var @event = new OrderCreatedEvent(
             OrderId: order.Id, 
             Amount:order.Amount,
-            CreatedAt: DateTime.UtcNow);
+            CreatedAt: DateTime.UtcNow);    
 
-        await _eventPublisher.PublishAsync(
-            @event,
+        var outboxMessage = new OutboxMessage(
+            eventType: nameof(OrderCreatedEvent),
+            payload: JsonSerializer.Serialize(@event, JsonOptions),
             exchange: OrderEventsExchange,
-            routingKey: OrderCreatedRoutingKey,
-            cancellationToken: cancellationToken);
+            routingKey: OrderCreatedRoutingKey);
+
+        // Transação atomica: order + outbox ou nada
+        await _orderRepository.AddAsync(order, cancellationToken);
+        await _outboxRepository.AddAsync(outboxMessage, cancellationToken);
+        await _orderRepository.SaveChangesAsync(cancellationToken); 
 
         return OrderViewModel.FromEntity(order);
     }
