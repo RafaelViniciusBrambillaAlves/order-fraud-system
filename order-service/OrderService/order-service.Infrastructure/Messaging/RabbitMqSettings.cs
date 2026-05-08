@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace order_service.Infrastructure.Messaging;
 
@@ -6,10 +7,17 @@ public class RabbitMqSettings
 {
     public const string SectionName = "RabbitMq";
 
-    public string Host { get; set; } = "localhost";
+    [Required]
+    public string Host { get; set; } = string.Empty;
+
+    [Required]
     public int Port { get; set; } = 5672;
-    public string Username { get; set; } = "guest";
-    public string Password { get; set; } = "guest";
+
+    [Required]
+    public string Username { get; set; } = string.Empty;
+
+    [Required]
+    public string Password { get; set; } = string.Empty;
 
     // Exchanges
     public string OrderEventsExchange { get; set; } = "order.events";
