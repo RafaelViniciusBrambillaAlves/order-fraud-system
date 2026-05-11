@@ -47,7 +47,7 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         _settings = options.Value;
         _logger = logger;
 
-        Connect();
+        // Connect();
     }
 
     // Conexão
@@ -128,8 +128,10 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         string eventType,
         CancellationToken cancellationToken = default)
     {
-        EnsureChannelIsOpen();
+        var connected  = EnsureChannelIsOpen();
         
+        if (!connected || _channel is not null)
+
         lock (_lock)
         {
             var properties = _channel!.CreateBasicProperties();
@@ -183,14 +185,32 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         return Task.CompletedTask;
     }
 
-    private void EnsureChannelIsOpen()
+    private bool EnsureChannelIsOpen()
     {
         if (_channel is not null && _channel.IsOpen)
-            return;
+            return true;
 
-        _logger.LogWarning("RabbitMQ channel closed. Reconnecting...");
+        lock (_lock)        
+        {
+            if (_channel is not null && _channel.IsOpen)
+                return true;
 
-        Connect();
+            try
+            {
+                _logger.LogWarning("RabbitMQ unavailable. Subscriber will continue without connection.");
+                Connect();
+
+                return _channel is not null && _channel.IsOpen;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "RabbitMQ unavailable. Subscriber will continue without connection.");
+
+                return false;
+            }
+        }
     }
 
     // Dispose

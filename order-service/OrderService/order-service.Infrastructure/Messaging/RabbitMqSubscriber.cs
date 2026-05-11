@@ -47,7 +47,7 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
     {
         _settings = options.Value;
         _logger = logger;
-        Connect();
+        // Connect();
     }
 
     // Cria conexão e canal com RabbitMQ
@@ -92,7 +92,16 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
     public void Subscribe(string queue, Func<ReadOnlyMemory<byte>, CancellationToken, Task> handler)
     {   
         // Verifica se canal está aberto
-        EnsureChannelIsOpen();
+        var connected = EnsureChannelIsOpen();
+
+        if (!connected || _channel is null)
+        {
+            _logger.LogWarning(
+                "Skipping subscription for queue {Queue} because RabbitMQ is unavailable.",
+                queue);
+
+            return;
+        }
 
         var consumer = new AsyncEventingBasicConsumer(_channel);
 
@@ -143,20 +152,35 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
 
     // Helpers
     // Verifica se canal está aberto
-    private void EnsureChannelIsOpen()
+    private bool EnsureChannelIsOpen()
     {
         if (_channel is not null && _channel.IsOpen)
-            return;
+            return true;
 
         lock (_lock)
         {
             if (_channel is not null && _channel.IsOpen)
-                return;
+                return true;
 
-            _logger.LogWarning("Subscriber channel is closed. Reconnecting...");
-            Connect();
+            try
+            {
+                _logger.LogWarning(
+                    "Subscriber channel is closed. Trying reconnect...");
+
+                Connect();
+
+                return _channel is not null && _channel.IsOpen;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(
+                    ex,
+                    "RabbitMQ unavailable. Subscriber will continue without connection.");
+
+                return false;
+            }
         }
-    }  
+    }
 
     // Libera recursos
     public void Dispose()
