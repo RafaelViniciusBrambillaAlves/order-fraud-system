@@ -1,14 +1,18 @@
 from fastapi import Depends, FastAPI, Request
 from contextlib import asynccontextmanager
-import threading
 import asyncio
 from app.infrastructure.database.client import MongoDatabase
+from motor.motor_asyncio import AsyncIOMotorClient
 import logging
 from app.infrastructure.database.repositories.mongo_order_repository import MongoOrderRepository
-from app.messaging.consumers.order_created_consumer import start_consumer
 from fastapi import HTTPException
 from app.domain.repositories.order_repository_interface import IOrderRepository
 from app.messaging.publishers.order_analyzed_publisher import OrderAnalyzedPublisher
+from app.core.settings import settings
+import aio_pika
+from app.messaging.consumers.order_created_consumer import OrderCreatedConsumer
+from app.messaging.publishers.outbox_relay_worker import OutboxRelayWorker
+from app.infrastructure.database.repositories.mongo_outbox_repository import MongoOutboxRepository
 
 logging.basicConfig(level = logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,36 +23,52 @@ async def lifespan(app: FastAPI):
     # Configura Dependências
 
     # Banco de Dados
-    mongo = MongoDatabase()
-    db = mongo.get_database()
-    repository = MongoOrderRepository(db)
+    mongo_client  = AsyncIOMotorClient(settings.mongodb_url)
+    db = mongo_client[settings.mongodb_database]
 
-    # Publisher RabbitMQ
-    publisher = OrderAnalyzedPublisher()
-    await publisher.connect()
+    await MongoDatabase.ensure_indexes(db)
+    
+    rabbit_conn = await aio_pika.connect_robust(settings.rabbitmq_url)
+    
+    order_repository = MongoOrderRepository(db)
+    outbox_repository = MongoOutboxRepository(db)
 
-    # Estado global
-    app.state.repository = repository
-    app.state.publisher = publisher
-    app.state.mongo = mongo
+    app.state.order_repository = order_repository   
 
-    # Consumer em thread separado
-    loop = asyncio.get_running_loop()
-    thread = threading.Thread(
-        target = start_consumer, 
-        args = (loop, repository, publisher),
-        daemon = True 
+    consumer = OrderCreatedConsumer(
+        connection = rabbit_conn,
+        mongo_client = mongo_client,
+        order_repository = order_repository,
+        outbox_repository = outbox_repository
     )
-    thread.start()
+    
+    await consumer.start()
 
-    logger.info("Fraud Service | Started")
+    relay = OutboxRelayWorker(
+        outbox_repository = outbox_repository, 
+        connection = rabbit_conn
+    )
 
-    yield 
+    relay_task = asyncio.create_task(
+        relay.run(), 
+        name = "outbox-relay"
+    )
 
-    # Shutdown
-    await publisher.close()
-    await mongo.close()
-    logger.info("Fraud Service | Shutdown complete")
+    logger.info("Fraud service started.")
+
+    yield
+
+    relay_task.cancel()
+
+    try:
+        await relay_task
+
+    except asyncio.CancelledError:
+        pass
+
+    await rabbit_conn.close()
+    mongo_client.close()
+    logger.info("Fraud service stopped.")
 
 
 app = FastAPI(
@@ -58,7 +78,7 @@ app = FastAPI(
 
 
 def get_repository(request: Request) -> IOrderRepository:
-    return request.app.state.repository
+    return request.app.state.order_repository
 
 # Endpoints
 

@@ -1,135 +1,88 @@
-import json
-import traceback 
-import pika
-import time
+import aio_pika
 import logging
-import asyncio
+from motor.motor_asyncio import AsyncIOMotorClient
 from app.schemas.order_created_event import OrderCreatedEvent
 from app.application.handlers.order_created_handler import handle_order_created
 from app.core.settings import settings
-from functools import partial
-from app.messaging.publishers.order_analyzed_publisher_interface import IOrderAnalyzedPublisher
 from app.domain.repositories.order_repository_interface import IOrderRepository
+from app.domain.repositories.outbox_message_repository_interface import IOutboxMessageRepository
+from app.application.handlers.order_created_handler import handle_order_created
+from app.schemas.order_created_event import OrderCreatedEvent
 
-logging.basicConfig(level = logging.INFO)
 logger = logging.getLogger(__name__)    
 
-EXCHANGE = "order.events"
-QUEUE = "fraud.analysis.queue"
-ROUTING_KEY = "order.created"
-DLQ_ROUTING_KEY = "fraud.analysis.dlq"
+class OrderCreatedConsumer:
 
-def _callback(
-        ch, 
-        method, 
-        properties, 
-        body, 
-        loop, 
-        repository, 
-        publisher: IOrderAnalyzedPublisher
-) -> None:
-    
-    try:
+    QUEUE = "order.created.queue"
+    EXCHANGE = "order.events"
+
+    def __init__(
+        self, 
+        connection: aio_pika.abc.AbstractRobustConnection,
+        mongo_client: AsyncIOMotorClient,
+        order_repository = IOrderRepository,
+        outbox_repository = IOutboxMessageRepository
+    ) -> None:
+        self._connection = connection
+        self._mongo_client = mongo_client
+        self._order_repository = order_repository
+        self._outbox_repository = outbox_repository
+
+    async def start(self) -> None:
+
+        channel = await self._connection.channel()
+
+        await channel.set_qos(prefetch_count = 1)
+
+        exchange = await channel.declare_exchange(
+            self.EXCHANGE, 
+            aio_pika.ExchangeType.DIRECT,
+            durable = True
+        )
+
+        queue = await channel.declare_queue(
+            self.QUEUE, 
+            durable = True
+        )
+
+        await queue.bind(
+            exchange, 
+            routing_key = "order.created"
+        )
+
+        await queue.consume(self._on_message)
+
         logger.info(
-            "OrderCreatedConsumer | Received | routing_key=%s",
-            method.routing_key
+            "OrderCreatedConsumer | listening on '%s'", 
+            self.QUEUE
         )
 
-        event = OrderCreatedEvent(**json.loads(body))
+    async def _on_message(
+        self, 
+        message: aio_pika.IncomingMessage
+    ) -> None:
 
-        future = asyncio.run_coroutine_threadsafe(
-           handle_order_created(event, repository, publisher), 
-           loop
-        )
-    
-        future.result()
+        async with message.process(requeue = False):
+            try:
+                event = OrderCreatedEvent.model_validate_json(message.body)
 
-        ch.basic_ack(delivery_tag = method.delivery_tag)
-        logger.info(
-            "OrderCreatedConsumer | Processed | order_id=%s",
-            event.order_id,
-        )
+                async with await self._mongo_client.start_session() as session:
 
-    except Exception as e:
-        logger.error(
-            "OrderCreatedConsumer | Failed | routing_key=%s | error=%s",
-            method.routing_key,
-            e,
-        )
-        logger.error(traceback.format_exc())
+                    async with session.start_transaction():
 
-        ch.basic_nack(delivery_tag = method.delivery_tag, requeue = False)
+                        await handle_order_created(
+                            event = event,
+                            order_repository = self._order_repository,
+                            outbox_repository = self._outbox_repository,
+                            session = session
+                        )
 
-
-def _setup_channel(
-    connection: pika.BlockingConnection, 
-    loop: asyncio.AbstractEventLoop, 
-    repository: IOrderRepository,
-    publisher: IOrderAnalyzedPublisher
-) -> pika.adapters.blocking_connection.BlockingChannel:
-    
-    channel = connection.channel()
-
-    channel.basic_qos(prefetch_count = 1)
-
-    channel.basic_consume(
-        queue = QUEUE,
-        on_message_callback = partial(
-            _callback, 
-            loop = loop, 
-            repository = repository,
-            publisher = publisher
-        ),
-        auto_ack = False
-    )
-
-    return channel
-
-def start_consumer(
-    loop: asyncio.AbstractEventLoop, 
-    repository: IOrderRepository, 
-    publisher: IOrderAnalyzedPublisher
-) -> None:
-    while True: 
-        try:
-            credentials = pika.PlainCredentials(
-                settings.rabbitmq_user,
-                settings.rabbitmq_password
-            )
-
-            connection = pika.BlockingConnection(
-                pika.ConnectionParameters(
-                    host = settings.rabbitmq_host,
-                    port = settings.rabbitmq_port,
-                    credentials = credentials,
-                    heartbeat = settings.rabbitmq_heartbeat,
-                    blocked_connection_timeout = 300
+            except Exception as exc:
+                logger.error(
+                    "Error processing message: %s",
+                    exc,
+                    exc_info = True
                 )
-            )
+                return 
 
-            channel = _setup_channel(connection, loop, repository, publisher)
             
-            logger.info("OrderCreatedConsumer | Waiting for events | queue=%s", QUEUE)
-
-            channel.start_consuming()
-
-        except (
-            pika.exceptions.AMQPConnectionError,
-            pika.exceptions.ConnectionClosedByBroker,
-            pika.exceptions.ChannelClosedByBroker
-        ) as e:
-            logger.warning(
-                "OrderCreatedConsumer | Connection lost | reason=%s | retrying in 5s",
-                e.__class__.__name__,
-            )
-            time.sleep(5)
-
-        except Exception as e:
-            logger.error(
-                "OrderCreatedConsumer | Unexpected error | error=%s",
-                e,
-            )
-            logger.error(traceback.format_exc())
-            time.sleep(5)
-    
-    

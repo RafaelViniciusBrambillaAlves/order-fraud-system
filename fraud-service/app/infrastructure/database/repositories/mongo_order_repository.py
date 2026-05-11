@@ -1,20 +1,30 @@
 from app.domain.repositories.order_repository_interface import IOrderRepository
 from app.domain.entities.order import Order
-from typing import List, Optional
+from typing import List, Optional, Any
 
 class MongoOrderRepository(IOrderRepository):
+
     def __init__(self, db):
         self.collection = db.orders
 
-    async def add(self, order: Order) -> None:
-        order_data = order.model_dump(mode = "json")
+    async def add_async(
+        self, 
+        order: Order,
+        session: Any | None = None
+    ) -> None:
+        
+        doc = order.model_dump(mode = "json")
 
-        order_data['_id'] = order_data.pop('id')
+        doc['_id'] = doc.pop('id')
 
-        await self.collection.insert_one(order_data)
+        await self.collection.insert_one(doc, session = session)
 
 
-    async def get_by_id(self, id: str) -> Optional[Order]:
+    async def get_by_id(
+        self, 
+        id: str
+    ) -> Optional[Order]:
+
         doc = await self.collection.find_one({"_id": id})
 
         if doc:
