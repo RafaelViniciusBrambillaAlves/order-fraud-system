@@ -28,3 +28,8 @@ class MongoDatabase:
             [("order_id", 1)],
             name = "ix_orders_order_id"
         )
+
+        await db["inbox_messages"].create_index(
+            "event_id",
+            unique = True
+        )

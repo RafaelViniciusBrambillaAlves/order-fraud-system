@@ -3,6 +3,7 @@ from datetime import datetime
 from uuid import UUID
 
 class OrderCreatedEvent(BaseModel):
+    event_id: str = Field(alias = "eventId")
     order_id: UUID = Field(alias = "orderId")
     amount: float 
     created_at: datetime = Field(alias = "createdAt")

@@ -6,6 +6,8 @@ from app.application.handlers.order_created_handler import handle_order_created
 from app.core.settings import settings
 from app.domain.repositories.order_repository_interface import IOrderRepository
 from app.domain.repositories.outbox_message_repository_interface import IOutboxMessageRepository
+from app.domain.repositories.inbox_message_repository_interface import IInboxRepository
+from app.domain.entities.inbox_message import InboxMessage
 from app.application.handlers.order_created_handler import handle_order_created
 from app.schemas.order_created_event import OrderCreatedEvent
 
@@ -21,12 +23,14 @@ class OrderCreatedConsumer:
         connection: aio_pika.abc.AbstractRobustConnection,
         mongo_client: AsyncIOMotorClient,
         order_repository = IOrderRepository,
-        outbox_repository = IOutboxMessageRepository
+        outbox_repository = IOutboxMessageRepository,
+        inbox_repository = IInboxRepository
     ) -> None:
         self._connection = connection
         self._mongo_client = mongo_client
         self._order_repository = order_repository
         self._outbox_repository = outbox_repository
+        self._inbox_repository = inbox_repository
 
     async def start(self) -> None:
 
@@ -62,7 +66,8 @@ class OrderCreatedConsumer:
         message: aio_pika.IncomingMessage
     ) -> None:
 
-        async with message.process(requeue = False):
+        async with message.process(requeue = True):
+
             try:
                 event = OrderCreatedEvent.model_validate_json(message.body)
 
@@ -70,19 +75,45 @@ class OrderCreatedConsumer:
 
                     async with session.start_transaction():
 
-                        await handle_order_created(
-                            event = event,
-                            order_repository = self._order_repository,
-                            outbox_repository = self._outbox_repository,
-                            session = session
+                       already_processed = (
+                           await self._inbox_repository.exists_async(
+                               event.event_id,
+                               session = session
+                           )
+                       )
+
+                    if already_processed:
+
+                        logger.warning(
+                            "Message already processed | event_id=%s",
+                            event.event_id
                         )
 
+                        return 
+                    
+                    await handle_order_created(
+                        event = event,
+                        order_repository = self._order_repository,
+                        outbox_repository = self._outbox_repository,
+                        session = session 
+                    )
+
+                    inbox_message = InboxMessage.create(
+                        event_id = event.event_id
+                    )
+
+                    await self._inbox_repository.add_async(
+                        inbox_message,
+                        session = session
+                    )
+            
             except Exception as exc:
+
                 logger.error(
                     "Error processing message: %s",
                     exc,
                     exc_info = True
                 )
-                return 
 
+                raise
             

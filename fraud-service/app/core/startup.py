@@ -9,6 +9,7 @@ from app.infrastructure.database.repositories.mongo_order_repository import Mong
 from app.infrastructure.database.repositories.mongo_outbox_repository import MongoOutboxRepository
 from app.messaging.consumers.order_created_consumer import OrderCreatedConsumer
 from app.messaging.publishers.outbox_relay_worker import OutboxRelayWorker
+from app.infrastructure.database.repositories.mongo_inbox_repository import MongoInboxRepository
 import asyncio
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
 
     order_repository = MongoOrderRepository(db)
     outbox_repository = MongoOutboxRepository(db)
+    inbox_respository = MongoInboxRepository(db)
 
     app.state.order_repository = order_repository
 
@@ -33,7 +35,8 @@ async def lifespan(app: FastAPI):
         connection = rabbit_conn,
         mongo_client = mongo_client,
         order_repository = order_repository,
-        outbox_repository = outbox_repository
+        outbox_repository = outbox_repository,
+        inbox_repository = inbox_respository
     )
 
     await consumer.start()
