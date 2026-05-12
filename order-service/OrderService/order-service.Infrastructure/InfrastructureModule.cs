@@ -59,6 +59,7 @@ public static class InfrastructureModule
     {
         services.AddScoped<IOrderRepository, OrderRepository>();
         services.AddScoped<IOutboxRepository, OutboxRepository>();
+        services.AddScoped<IInboxRepository, InboxRepository>();
 
         return services;
     }

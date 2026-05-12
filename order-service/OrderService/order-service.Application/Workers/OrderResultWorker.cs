@@ -42,13 +42,16 @@ public sealed class OrderResultWorker : BackgroundService
             "{Worker} starting. Listening on queue '{Queue}'.",
             nameof(OrderResultWorker), Queue);
         
-        _subscriber.Subscribe(Queue, (body, ct) => DispatchAsync(body, ct));
+        _subscriber.Subscribe(Queue, (body, metadata, ct) => DispatchAsync(body, metadata, ct));
 
         return Task.CompletedTask;
     }
 
     // Processa a mensagem recebida
-    private async Task DispatchAsync(ReadOnlyMemory<byte> body, CancellationToken cancellationToken)
+    private async Task DispatchAsync(
+        ReadOnlyMemory<byte> body, 
+        MessageMetadata metadata,
+        CancellationToken cancellationToken)
     {
         OrderAnalyzedEvent? @event;
 
@@ -63,15 +66,17 @@ public sealed class OrderResultWorker : BackgroundService
             if (@event is null)
             {   
                 _logger.LogWarning(
-                    "Received null event after deserialization. Body={Body}",
-                    Encoding.UTF8.GetString(body.Span));
+                   "Received null event after deserialization | Queue={Queue} EventId={EventId} Body={Body}",
+                    Queue, metadata.EventId, Encoding.UTF8.GetString(body.Span));
                 return;
             }
         }   
         catch (JsonException ex)
         {
             // Erro ao converter JSON
-            _logger.LogError(ex, "Failed to deserialize message from queue '{Queue}'.", Queue);
+            _logger.LogError(ex, 
+                "Failed to deserialize message | Queue={Queue} EventId={EventId}",
+                Queue, metadata.EventId);
             return;
         }
 
@@ -82,6 +87,6 @@ public sealed class OrderResultWorker : BackgroundService
         var handler = scope.ServiceProvider.GetRequiredService<OrderAnalyzedEventHandler>();
 
         // Processa o evento
-        await handler.HandleAsync(@event, cancellationToken);
+        await handler.HandleAsync(@event, metadata.EventId, cancellationToken);
     }
 }

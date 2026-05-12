@@ -89,7 +89,9 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
 
     // Subscribe
     // Registra um consumer assincrono na fila informada
-    public void Subscribe(string queue, Func<ReadOnlyMemory<byte>, CancellationToken, Task> handler)
+    public void Subscribe(
+        string queue, 
+        Func    <ReadOnlyMemory<byte>, MessageMetadata, CancellationToken, Task> handler)
     {   
         // Verifica se canal está aberto
         var connected = EnsureChannelIsOpen();
@@ -110,6 +112,28 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
         {   
             // Identificador da mensagem
             var deliveryTag = eventArgs.DeliveryTag;
+            
+            // Extrai metadados do header
+            // MessageId é setado pelo RabbitMqPublisher em cada mensagem publicada.
+
+            var messageId = eventArgs.BasicProperties?.MessageId;
+
+            if (string.IsNullOrWhiteSpace(messageId))
+            {
+                messageId = Guid.NewGuid().ToString();
+
+                _logger.LogWarning(
+                    "Message without MessageId received | Queue={Queue} DeliveryTag={Tag}. " +
+                    "Generated fallback EventId={EventId}. " +
+                    "Ensure the publisher sets BasicProperties.MessageId.",
+                    queue, deliveryTag, messageId);    
+            }
+
+            var metadata = new MessageMetadata(
+                EventId: messageId,
+                EventType: eventArgs.BasicProperties?.Type ?? string.Empty,
+                RoutingKey: eventArgs.RoutingKey
+            );
 
             try
             {
@@ -118,7 +142,7 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
                     queue, deliveryTag, eventArgs.RoutingKey);
 
                     // Executa processamento da mensagem
-                    await handler(eventArgs.Body, CancellationToken.None);
+                    await handler(eventArgs.Body, metadata, CancellationToken.None);
 
                      // ACK = RabbitMQ remove mensagem da fila
                     _channel!.BasicAck(deliveryTag, multiple: false);
