@@ -12,7 +12,7 @@ public class Order : EntityBase
     {
         Description = description;
         Amount = amount;
-        Status = OrderStatus.PENDING;
+        Status = OrderStatus.PENDING_FRAUD_CHECK;
         CreatedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
     }
@@ -25,7 +25,7 @@ public class Order : EntityBase
 
     public void Approve()
     {
-        if (Status != OrderStatus.PENDING)
+        if (Status != OrderStatus.PENDING_FRAUD_CHECK)
         {
             throw new InvalidOperationException("Only pending orders can be approved.");
         }
@@ -36,7 +36,7 @@ public class Order : EntityBase
 
     public void Reject()
     {
-        if (Status != OrderStatus.PENDING)
+        if (Status != OrderStatus.PENDING_FRAUD_CHECK)
         {
             throw new InvalidOperationException("Only pending orders can be rejected.");
         }
