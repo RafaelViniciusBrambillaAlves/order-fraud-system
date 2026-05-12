@@ -6,7 +6,6 @@ from app.domain.entities.entity_base import EntityBase
 from app.domain.enums.outbox_status import OutboxStatus
 
 class OutboxMessage(EntityBase):
-    id: UUID 
     event_type: str
     payload: str
     exchange: str
@@ -29,7 +28,6 @@ class OutboxMessage(EntityBase):
         routing_key: str
     ) -> "OutboxMessage":
         return cls(
-            id = uuid4(),
             event_type = event_type,
             payload = payload,
             exchange = exchange,
