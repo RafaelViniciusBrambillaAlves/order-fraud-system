@@ -14,7 +14,7 @@ public sealed class OutboxRelayWorker : BackgroundService
     private readonly ILogger<OutboxRelayWorker> _logger;
 
     // Intervalo entre cada ciclo
-    private static readonly TimeSpan PollingInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PollingInterval = TimeSpan.FromMilliseconds(500);
 
     public OutboxRelayWorker(
         IServiceScopeFactory scopeFactory,
