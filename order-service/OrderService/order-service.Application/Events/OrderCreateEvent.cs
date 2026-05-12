@@ -4,6 +4,7 @@ namespace order_service.Application.Events;
 // Contrato imutável - nunca remova propriedades, apenas adicione.
 
 public sealed record OrderCreatedEvent(
+    Guid EventId,
     Guid OrderId,
     decimal Amount, 
     DateTime CreatedAt

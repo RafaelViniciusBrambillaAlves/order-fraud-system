@@ -37,6 +37,7 @@ public class OrderService : IOrderService
         var order = new Order(input.Description, input.Amount);
 
         var @event = new OrderCreatedEvent(
+            EventId: Guid.NewGuid(),
             OrderId: order.Id, 
             Amount:order.Amount,
             CreatedAt: DateTime.UtcNow);    
