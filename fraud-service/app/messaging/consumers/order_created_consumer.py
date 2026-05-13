@@ -44,9 +44,17 @@ class OrderCreatedConsumer:
             durable = True
         )
 
+        # queue = await channel.declare_queue(
+        #     self.QUEUE, 
+        #     durable = True
+        # )
         queue = await channel.declare_queue(
-            self.QUEUE, 
-            durable = True
+            self.QUEUE,
+            durable = True,
+            arguments  = {
+                "x-dead-letter-exchange": "dead.letter.exchange",
+                "x-dead-letter-routing-key": "fraud.analysis.dlq"
+            }
         )
 
         await queue.bind(
@@ -66,7 +74,7 @@ class OrderCreatedConsumer:
         message: aio_pika.IncomingMessage
     ) -> None:
 
-        async with message.process(requeue = True):
+        async with message.process(requeue = False):
 
             try:
                 event = OrderCreatedEvent.model_validate_json(message.body)

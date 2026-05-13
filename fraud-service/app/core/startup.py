@@ -10,6 +10,7 @@ from app.infrastructure.database.repositories.mongo_outbox_repository import Mon
 from app.messaging.consumers.order_created_consumer import OrderCreatedConsumer
 from app.messaging.publishers.outbox_relay_worker import OutboxRelayWorker
 from app.infrastructure.database.repositories.mongo_inbox_repository import MongoInboxRepository
+from app.messaging.consumers.dlq_consumer import DlqConsumer
 import asyncio
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,13 @@ async def lifespan(app: FastAPI):
         relay.run(),
         name = "outbox-relay"
     )
+
+    fraud_dlq_consumer = DlqConsumer(
+        connection = rabbit_conn,
+        queue_name = "fraud.analysis.dlq"
+    )
+
+    await fraud_dlq_consumer.start()
 
     logger.info("Fraud service started.")
 
