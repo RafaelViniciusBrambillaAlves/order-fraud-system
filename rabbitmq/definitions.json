@@ -36,6 +36,14 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {}
+    },
+    {
+      "name": "dead.letter.exchange",
+      "vhost": "/",
+      "type": "direct",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {}
     }
   ],
   "queues": [
@@ -44,14 +52,20 @@
       "vhost": "/",
       "durable": true,
       "auto_delete": false,
-      "arguments": {}
+      "arguments": {
+        "x-message-ttl": 604800000,
+        "x-queue-type": "classic"
+      }
     },
     {
       "name": "order.result.dlq",
       "vhost": "/",
       "durable": true,
       "auto_delete": false,
-      "arguments": {}
+      "arguments": {
+        "x-message-ttl": 604800000,
+        "x-queue-type": "classic"
+      }
     },
     {
       "name": "fraud.analysis.queue",
@@ -59,8 +73,9 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {
-        "x-dead-letter-exchange": "",
-        "x-dead-letter-routing-key": "fraud.analysis.dlq"
+        "x-dead-letter-exchange": "dead.letter.exchange",
+        "x-dead-letter-routing-key": "fraud.analysis.dlq",
+        "x-queue-type": "classic"
       }
     },
     {
@@ -69,8 +84,9 @@
       "durable": true,
       "auto_delete": false,
       "arguments": {
-        "x-dead-letter-exchange": "",
-        "x-dead-letter-routing-key": "order.result.dlq"
+        "x-dead-letter-exchange": "dead.letter.exchange",
+        "x-dead-letter-routing-key": "order.result.dlq",
+        "x-queue-type": "classic"
       }
     }
   ],
@@ -97,6 +113,22 @@
       "destination": "order.result.queue",
       "destination_type": "queue",
       "routing_key": "order.rejected",
+      "arguments": {}
+    },
+    {
+      "source": "dead.letter.exchange",
+      "vhost": "/",
+      "destination": "fraud.analysis.dlq",
+      "destination_type": "queue",
+      "routing_key": "fraud.analysis.dlq",
+      "arguments": {}
+    },
+    {
+      "source": "dead.letter.exchange",
+      "vhost": "/",
+      "destination": "order.result.dlq",
+      "destination_type": "queue",
+      "routing_key": "order.result.dlq",
       "arguments": {}
     }
   ]
