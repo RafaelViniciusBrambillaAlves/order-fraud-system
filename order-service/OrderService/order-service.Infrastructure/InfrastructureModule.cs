@@ -7,6 +7,9 @@ using order_service.Application.Publishers;
 using order_service.Infrastructure.Persistence.Repositories; 
 using order_service.Domain.Repositories;
 using order_service.Application.Subscribers;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using order_service.Infrastructure.Messaging;
 
 namespace order_service.Infrastructure;
 
@@ -50,6 +53,18 @@ public static class InfrastructureModule
         services.AddSingleton<IEventSubscriber, RabbitMqSubscriber>();
 
         services.AddHostedService<OutboxRelayWorker>();
+
+        services.AddHostedService(sp => 
+            new DlqWorker(
+                sp.GetRequiredService<IOptions<RabbitMqSettings>>(),
+                sp.GetRequiredService<ILogger<DlqWorker>>(),
+                new DlqWorkerOptions("fraud.analysis.dlq")));
+
+        services.AddHostedService(sp =>
+            new DlqWorker(
+                sp.GetRequiredService<IOptions<RabbitMqSettings>>(),
+                sp.GetRequiredService<ILogger<DlqWorker>>(),
+                new DlqWorkerOptions("order.result.dlq")));
 
         return services;
     }

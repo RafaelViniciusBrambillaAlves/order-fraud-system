@@ -7,6 +7,7 @@ using order_service.Application.Events;
 using order_service.Application.Handlers;
 using order_service.Application.Subscribers;
 using Microsoft.Extensions.Hosting;
+using System.ComponentModel;
 
 namespace order_service.Application.Workers;
 
@@ -42,7 +43,8 @@ public sealed class OrderResultWorker : BackgroundService
             "{Worker} starting. Listening on queue '{Queue}'.",
             nameof(OrderResultWorker), Queue);
         
-        _subscriber.Subscribe(Queue, (body, metadata, ct) => DispatchAsync(body, metadata, ct));
+        _subscriber.Subscribe(Queue, (body, metadata, ct) => 
+            DispatchAsync(body, metadata, ct));
 
         return Task.CompletedTask;
     }
@@ -53,7 +55,7 @@ public sealed class OrderResultWorker : BackgroundService
         MessageMetadata metadata,
         CancellationToken cancellationToken)
     {
-        OrderAnalyzedEvent? @event;
+        OrderAnalyzedEvent @event;
 
         try
         {   
@@ -61,30 +63,37 @@ public sealed class OrderResultWorker : BackgroundService
             var json = Encoding.UTF8.GetString(body.Span);
 
             // Converte JSON para objeto C#
-            @event = JsonSerializer.Deserialize<OrderAnalyzedEvent>(json, JsonOptions);
-
-            if (@event is null)
+            var deserialized = JsonSerializer.Deserialize<OrderAnalyzedEvent>(json, JsonOptions);
+                
+            if (deserialized is null)
             {   
-                _logger.LogWarning(
-                   "Received null event after deserialization | Queue={Queue} EventId={EventId} Body={Body}",
-                    Queue, metadata.EventId, Encoding.UTF8.GetString(body.Span));
-                return;
+                // Payload nulo após desserialização é uma mensagem malformada.
+                // Lança exceção para que o RabbitMqSubscriber envie NACK
+                // e a mensagem seja roteada para order.result.dlq.
+                throw new InvalidOperationException(
+                    $"Deserialization returned null | Queue={Queue} EventId={metadata.EventId} " +
+                    $"Body={Encoding.UTF8.GetString(body.Span)}");
             }
+
+            @event = deserialized;  
         }   
         catch (JsonException ex)
         {
             // Erro ao converter JSON
-            _logger.LogError(ex, 
-                "Failed to deserialize message | Queue={Queue} EventId={EventId}",
+            _logger.LogError(ex,
+                "Failed to deserialize message - routing to DLQ | " +
+                "Queue={Queue} EventId={EventId}",
                 Queue, metadata.EventId);
-            return;
+
+            throw;
         }
 
         // Cria um escopo de DI
         await using var scope = _scopeFactory.CreateAsyncScope();
 
         // Obtém o handler responsável pelo evento
-        var handler = scope.ServiceProvider.GetRequiredService<OrderAnalyzedEventHandler>();
+        var handler = scope.ServiceProvider
+            .GetRequiredService<OrderAnalyzedEventHandler>();
 
         // Processa o evento
         await handler.HandleAsync(@event, metadata.EventId, cancellationToken);
