@@ -12,7 +12,7 @@ using order_service.Infrastructure.Persistence;
 namespace order_service.Infrastructure.Migrations
 {
     [DbContext(typeof(OrderDbContext))]
-    [Migration("20260508173923_AddOutboxMessages")]
+    [Migration("20260513195326_AddOutboxMessages")]
     partial class AddOutboxMessages
     {
         /// <inheritdoc />
@@ -24,6 +24,27 @@ namespace order_service.Infrastructure.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+            modelBuilder.Entity("order_service.Domain.Entities.InboxMessage", b =>
+                {
+                    b.Property<string>("EventId")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("ProcessedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("EventId");
+
+                    b.HasIndex("EventId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_InboxMessages_EventId");
+
+                    b.ToTable("InboxMessage", (string)null);
+                });
 
             modelBuilder.Entity("order_service.Domain.Entities.Order", b =>
                 {
@@ -42,6 +63,12 @@ namespace order_service.Infrastructure.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
 
+                    b.Property<DateTime?>("SagaCompletedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("SagaStartedAt")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
@@ -50,6 +77,10 @@ namespace order_service.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("Status", "SagaStartedAt")
+                        .HasDatabaseName("IX_Orders_SagaTimeout")
+                        .HasFilter("\"Status\" = 1");
+
                     b.ToTable("Orders", (string)null);
                 });
 
@@ -57,6 +88,9 @@ namespace order_service.Infrastructure.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid?>("AggregateId")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime>("CreatedAt")
