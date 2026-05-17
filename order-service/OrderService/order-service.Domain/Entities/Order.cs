@@ -1,9 +1,18 @@
 using order_service.Domain.Enums;
 
+
 namespace order_service.Domain.Entities;
 
 public class Order : EntityBase
 {
+    public string Description { get; private set; } = string.Empty;
+    public decimal Amount { get; private set; }
+    public OrderStatus Status { get; private set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime UpdatedAt { get; private set; }
+    public DateTime? SagaStartedAt { get; private set; }
+    public DateTime? SagaCompletedAt { get; private set; }
+
     private Order() {}
 
     public Order(
@@ -16,12 +25,6 @@ public class Order : EntityBase
         CreatedAt = DateTime.UtcNow;
         UpdatedAt = DateTime.UtcNow;
     }
-
-    public string Description { get; private set; } = string.Empty;
-    public decimal Amount { get; private set; }
-    public OrderStatus Status { get; private set; }
-    public DateTime CreatedAt { get; private set; }
-    public DateTime UpdatedAt { get; private set; }
 
     public void Approve()
     {
@@ -54,5 +57,24 @@ public class Order : EntityBase
         Status = newStatus;
         UpdatedAt = DateTime.UtcNow;
     }  
+
+    public void StartSaga()
+    {
+        if (SagaStartedAt.HasValue)
+            throw new InvalidOperationException(
+                $"Saga already started for Order {Id}.");
+
+        SagaStartedAt = DateTime.UtcNow;
+    }
+
+    public void MarkAsTimedOut()
+    {
+        if (Status != OrderStatus.PENDING_FRAUD_CHECK)
+            throw new InvalidOperationException(
+                $"Cannot time out Order {Id}: current status is {Status}.");
+            
+        Status = OrderStatus.TIMED_OUT;
+        SagaCompletedAt = DateTime.UtcNow;
+    }
 
 }

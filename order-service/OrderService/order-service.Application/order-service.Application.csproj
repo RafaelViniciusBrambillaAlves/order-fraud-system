@@ -11,6 +11,7 @@
     <Folder Include="InputModels\" />
     <Folder Include="Publishers\" />
     <Folder Include="Services\" />
+    <Folder Include="Settings\" />
     <Folder Include="Subscribers\" />
     <Folder Include="ViewModels\" />
     <Folder Include="Workers\" />

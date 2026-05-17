@@ -3,7 +3,8 @@ using order_service.Domain.Enums;
 namespace order_service.Domain.Entities;
 
 public sealed class OutboxMessage : EntityBase
-{
+{   
+    public Guid? AggregateId { get; private set; }
     public string EventType { get; private set; }
     public string Payload { get; private set; }
     public string Exchange { get; private set; }
@@ -17,11 +18,13 @@ public sealed class OutboxMessage : EntityBase
     private OutboxMessage() {}
 
     public OutboxMessage(
+        Guid? aggregateId,
         string eventType,
         string payload,
         string exchange,
         string routingKey)
-    {
+    {           
+        AggregateId = aggregateId;
         EventType = eventType;
         Payload = payload;
         Exchange = exchange;

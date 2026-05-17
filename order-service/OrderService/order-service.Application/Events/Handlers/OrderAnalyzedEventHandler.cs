@@ -74,6 +74,15 @@ public sealed class OrderAnalyzedEventHandler
             return;
         }
 
+        if (order.Status == OrderStatus.TIMED_OUT)
+        {
+            _logger.LogWarning(
+                "Late fraud response ignored — order already timed out | " +
+                "OrderId={OrderId} EventId={EventId} FraudStatus={FraudStatus}",
+                @event.OrderId, eventId, @event.FraudStatus);
+            return;
+        }
+
         if (string.IsNullOrWhiteSpace(@event.FraudStatus))
         {
              _logger.LogWarning(

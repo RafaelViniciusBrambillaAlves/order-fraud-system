@@ -10,4 +10,6 @@ public interface IOrderRepository
     Task AddAsync(Order order, CancellationToken cancellationToken = default);
     Task SaveChangesAsync(CancellationToken cancellationToken = default);
 
+    Task<IReadOnlyList<Order>> GetPendingTimedOutAsync(TimeSpan timeout, CancellationToken cancellationToken = default);
+
 }

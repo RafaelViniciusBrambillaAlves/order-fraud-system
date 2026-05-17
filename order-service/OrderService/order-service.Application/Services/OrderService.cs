@@ -6,6 +6,7 @@ using order_service.Application.Events;
 using order_service.Application.Publishers;
 using System.Text.Json;
 using System.ComponentModel;
+using Microsoft.Extensions.Logging;
 
 namespace order_service.Application.Services;
 
@@ -13,7 +14,7 @@ public class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IOutboxRepository  _outboxRepository;
-
+    public readonly ILogger<OrderService> _logger;
     private const string OrderEventsExchange  = "order.events";
     private const string OrderCreatedRoutingKey = "order.created";
 
@@ -24,10 +25,12 @@ public class OrderService : IOrderService
 
     public OrderService(
         IOrderRepository orderRepository, 
-        IOutboxRepository  outboxRepository)
+        IOutboxRepository  outboxRepository,
+        ILogger<OrderService> logger)
     {
         _orderRepository = orderRepository;
         _outboxRepository = outboxRepository;
+        _logger = logger;
     }
 
     public async Task<OrderViewModel> CreateAsync(
@@ -43,6 +46,7 @@ public class OrderService : IOrderService
             CreatedAt: DateTime.UtcNow);    
 
         var outboxMessage = new OutboxMessage(
+            aggregateId: order.Id,
             eventType: nameof(OrderCreatedEvent),
             payload: JsonSerializer.Serialize(@event, JsonOptions),
             exchange: OrderEventsExchange,

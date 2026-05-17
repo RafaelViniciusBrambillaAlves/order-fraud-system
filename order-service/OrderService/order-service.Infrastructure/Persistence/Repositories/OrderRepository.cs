@@ -1,6 +1,8 @@
 using order_service.Domain.Entities;
 using order_service.Domain.Repositories;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations.Operations;
+using order_service.Domain.Enums;
 
 namespace order_service.Infrastructure.Persistence.Repositories;
 
@@ -31,5 +33,20 @@ public class OrderRepository : IOrderRepository
     public async Task SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         await _context.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<Order>> GetPendingTimedOutAsync(
+        TimeSpan timeout,
+        CancellationToken cancellationToken = default)
+    {
+        var deadline = DateTime.UtcNow - timeout;
+
+        return await _context.Orders
+            .Where( o => 
+                o.Status == OrderStatus.PENDING_FRAUD_CHECK &&
+                o.SagaStartedAt.HasValue && 
+                o.SagaStartedAt  <= deadline &&
+                o.SagaCompletedAt == null)
+            .ToListAsync(cancellationToken);
     }
 }
