@@ -31,9 +31,13 @@ Console.WriteLine(builder.Configuration.GetConnectionString("DefaultConnection")
 await app.Services.ApplyMigrationsAsync();
 
 app.UseSwagger();
-app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Order Service v1"));
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("v1/swagger.json", "Order Service API v1");
+    c.RoutePrefix = "swagger";
+});
 
-app.UseHttpsRedirection();
+// app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
 

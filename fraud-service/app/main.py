@@ -8,7 +8,8 @@ from app.api.routes.order_routes import router as order_router
 
 app = FastAPI(
     title = "Fraud Service",
-    lifespan = lifespan
+    lifespan = lifespan,
+    root_path = "/fraud",
 )
 
 app.include_router(health_router)

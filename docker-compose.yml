@@ -1,104 +1,171 @@
-services:
+  services:
 
-  # =====================
-  # ORDER SERVICE (.NET)
-  # =====================
-  order-service:
-    build: ./order-service
-    ports:
-      - "5001:80"
-    depends_on:
-      sqlserver:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    env_file:
-      - ./order-service/.env
+    # =====================
+    # ORDER SERVICE (.NET)
+    # =====================
+    order-service:
+      build: ./order-service
+      # ports:
+      #   - "5001:80"
+      depends_on:
+        sqlserver:
+          condition: service_healthy
+        rabbitmq:
+          condition: service_healthy
+      env_file:
+        - ./order-service/.env
+      networks:
+        - microservices-network
+      labels:
+        - "traefik.enable=true"
 
-  # =====================
-  # FRAUD SERVICE (FASTAPI)
-  # =====================
-  fraud-service:
-    build: ./fraud-service
-    ports:
-      - "8000:8000"
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy 
-    env_file:
-      - ./fraud-service/.env
+        # API
+        - "traefik.http.routers.order.rule=PathPrefix(`/api/orders`)"
+        - "traefik.http.routers.order.entrypoints=web"
+        - "traefik.http.services.order.loadbalancer.server.port=80"
 
-  # =====================
-  # SQL SERVER
-  # =====================
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    environment:
-      SA_PASSWORD: "YourStrong!Passw0rd"
-      ACCEPT_EULA: "Y"
-    ports:
-      - "1433:1433"
-    volumes:
-      - sql_data:/var/opt/mssql
-    healthcheck:
-      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -Q 'SELECT 1' -No -C || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+        # SWAGGER
+        - "traefik.http.routers.order-swagger.rule=PathPrefix(`/order/swagger`)"
+        - "traefik.http.routers.order-swagger.entrypoints=web"
 
-  # =====================
-  # MONGODB
-  # =====================
-  mongodb:
-    image: mongo:6
-    command: ["bash", "/mongo-init.sh"]
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-      - ./mongodb/mongo-init.sh:/mongo-init.sh
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "rs.isMaster().ismaster || quit(1)"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
-      
+        - "traefik.http.routers.order-swagger.middlewares=order-swagger-rewrite"
 
-  # =====================
-  # RABBITMQ
-  # =====================
-  rabbitmq:
-    image: rabbitmq:3-management
-    ports:
-      - "5672:5672"   # comunicação entre serviços
-      - "15672:15672" # interface web
-    volumes:
-    - rabbitmq_data:/var/lib/rabbitmq 
-    - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
-    - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 30s
+        - "traefik.http.middlewares.order-swagger-rewrite.replacepathregex.regex=^/order/swagger(.*)"
+        - "traefik.http.middlewares.order-swagger-rewrite.replacepathregex.replacement=/swagger$$1"
 
-  # =====================
-  # DBGATE (SQL UI PROFISSIONAL)
-  # =====================
-  dbgate:
-    image: dbgate/dbgate
-    ports:
-      - "3000:3000"
-    volumes:
-      - dbgate_data:/root/.dbgate
+        - "traefik.http.routers.order-swagger.service=order"
 
-volumes:
-  sql_data:
-  mongo_data:
-  dbgate_data:
-  rabbitmq_data:
+    # =====================
+    # FRAUD SERVICE (FASTAPI)
+    # =====================
+    fraud-service:
+      build: ./fraud-service
+      # ports:
+      #   - "8000:8000"
+      depends_on:
+        mongodb:
+          condition: service_healthy
+        rabbitmq:
+          condition: service_healthy 
+      env_file:
+        - ./fraud-service/.env
+      networks:
+        - microservices-network
+      labels:
+        - "traefik.enable=true"
+
+        # API
+        - "traefik.http.routers.fraud.rule=PathPrefix(`/api/fraud`)"
+        - "traefik.http.routers.fraud.entrypoints=web"
+        - "traefik.http.services.fraud.loadbalancer.server.port=8000"
+        - "traefik.http.routers.fraud.middlewares=fraud-strip"
+        - "traefik.http.middlewares.fraud-strip.stripprefix.prefixes=/fraud"
+        
+        # DOCS
+        - "traefik.http.routers.fraud-ui.rule=PathPrefix(`/fraud`)"
+        - "traefik.http.routers.fraud-ui.entrypoints=web"
+        - "traefik.http.routers.fraud-ui.middlewares=fraud-strip"
+        - "traefik.http.routers.fraud-ui.service=fraud"
+
+    # =====================
+    # SQL SERVER
+    # =====================
+    sqlserver:
+      image: mcr.microsoft.com/mssql/server:2022-latest
+      environment:
+        SA_PASSWORD: "YourStrong!Passw0rd"
+        ACCEPT_EULA: "Y"
+      ports:
+        - "1433:1433"
+      volumes:
+        - sql_data:/var/opt/mssql
+      healthcheck:
+        test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'YourStrong!Passw0rd' -Q 'SELECT 1' -No -C || exit 1"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
+        start_period: 30s
+      networks:
+        - microservices-network
+
+    # =====================
+    # MONGODB
+    # =====================
+    mongodb:
+      image: mongo:6
+      command: ["bash", "/mongo-init.sh"]
+      ports:
+        - "27017:27017"
+      volumes:
+        - mongo_data:/data/db
+        - ./mongodb/mongo-init.sh:/mongo-init.sh
+      healthcheck:
+        test: ["CMD", "mongosh", "--quiet", "--eval", "rs.isMaster().ismaster || quit(1)"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
+        start_period: 40s
+      networks:
+        - microservices-network
+        
+    # =====================
+    # RABBITMQ
+    # =====================
+    rabbitmq:
+      image: rabbitmq:3-management
+      ports:
+        - "5672:5672"   # comunicação entre serviços
+        - "15672:15672" # interface web
+      volumes:
+      - rabbitmq_data:/var/lib/rabbitmq 
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ./rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+      healthcheck:
+        test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
+        start_period: 30s
+      networks:
+        - microservices-network
+
+    # =====================
+    # DBGATE (SQL UI PROFISSIONAL)
+    # =====================
+    dbgate:
+      image: dbgate/dbgate
+      ports:
+        - "3000:3000"
+      volumes:
+        - dbgate_data:/root/.dbgate
+
+    # =====================
+    # TRAEFIK API GATEWAY
+    # =====================
+    traefik:
+      image: traefik:v3.0
+      command:
+        - "--api.insecure=true"
+        - "--providers.docker=true"
+        - "--providers.docker.exposedbydefault=false"
+        - "--entrypoints.web.address=:80"
+
+      ports:
+        - "80:80"
+        - "8080:8080"
+
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock:ro
+
+      networks:
+        - microservices-network
+
+  volumes:
+    sql_data:
+    mongo_data:
+    dbgate_data:
+    rabbitmq_data:
+
+  networks:
+    microservices-network:
+      driver: bridge

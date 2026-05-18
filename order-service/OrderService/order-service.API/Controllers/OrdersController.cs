@@ -7,7 +7,8 @@ using order_service.Application.InputModels;
 namespace order_service.API.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+// [Route("api/[controller]")]
+[Route("api/orders")]
 [Produces("application/json")]
 public class OrdersController : ControllerBase
 {
