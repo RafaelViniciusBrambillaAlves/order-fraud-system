@@ -3,17 +3,17 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "order-service", "order-service", "{C2EF976B-DB43-4767-ADC1-7F70F4F2AF97}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "order-service", "order-service", "{A7A9BD91-A3D6-48F9-BC0C-E59AB79E1B37}"
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "OrderService", "OrderService", "{7C65A996-15FB-4A66-88A7-E365F51513AA}"
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "OrderService", "OrderService", "{5FAC62AD-47CB-459A-AD9F-FD1C028AF147}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "order-service.API", "order-service\OrderService\order-service.API\order-service.API.csproj", "{45FEBD66-4954-4B55-BA2B-CC97485FCFFE}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "order-service.API", "order-service\OrderService\order-service.API\order-service.API.csproj", "{1ECAF926-130D-4808-B916-8F9647356CF8}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "order-service.Application", "order-service\OrderService\order-service.Application\order-service.Application.csproj", "{AE6E4576-4AAF-4F89-80A4-762344271F32}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "order-service.Application", "order-service\OrderService\order-service.Application\order-service.Application.csproj", "{F81A74C1-E279-4AA8-B6D2-EB35FBB7F8AC}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "order-service.Domain", "order-service\OrderService\order-service.Domain\order-service.Domain.csproj", "{0FE42952-77C1-4238-AD41-805DABAC3B0B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "order-service.Domain", "order-service\OrderService\order-service.Domain\order-service.Domain.csproj", "{A5C65844-F3C9-4696-B67A-A68149232CDB}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "order-service.Infrastructure", "order-service\OrderService\order-service.Infrastructure\order-service.Infrastructure.csproj", "{D95205F1-D2CE-4690-893C-8C417F4564D3}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "order-service.Infrastructure", "order-service\OrderService\order-service.Infrastructure\order-service.Infrastructure.csproj", "{44C8F779-BCD9-4B79-A31C-AC31A7292B7C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -23,29 +23,31 @@ Global
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
+	GlobalSection(SolutionGuidances) = preSolution
+	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{45FEBD66-4954-4B55-BA2B-CC97485FCFFE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{45FEBD66-4954-4B55-BA2B-CC97485FCFFE}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{45FEBD66-4954-4B55-BA2B-CC97485FCFFE}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{45FEBD66-4954-4B55-BA2B-CC97485FCFFE}.Release|Any CPU.Build.0 = Release|Any CPU
-		{AE6E4576-4AAF-4F89-80A4-762344271F32}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{AE6E4576-4AAF-4F89-80A4-762344271F32}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{AE6E4576-4AAF-4F89-80A4-762344271F32}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{AE6E4576-4AAF-4F89-80A4-762344271F32}.Release|Any CPU.Build.0 = Release|Any CPU
-		{0FE42952-77C1-4238-AD41-805DABAC3B0B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{0FE42952-77C1-4238-AD41-805DABAC3B0B}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{0FE42952-77C1-4238-AD41-805DABAC3B0B}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{0FE42952-77C1-4238-AD41-805DABAC3B0B}.Release|Any CPU.Build.0 = Release|Any CPU
-		{D95205F1-D2CE-4690-893C-8C417F4564D3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{D95205F1-D2CE-4690-893C-8C417F4564D3}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{D95205F1-D2CE-4690-893C-8C417F4564D3}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{D95205F1-D2CE-4690-893C-8C417F4564D3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1ECAF926-130D-4808-B916-8F9647356CF8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1ECAF926-130D-4808-B916-8F9647356CF8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1ECAF926-130D-4808-B916-8F9647356CF8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1ECAF926-130D-4808-B916-8F9647356CF8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F81A74C1-E279-4AA8-B6D2-EB35FBB7F8AC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F81A74C1-E279-4AA8-B6D2-EB35FBB7F8AC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F81A74C1-E279-4AA8-B6D2-EB35FBB7F8AC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F81A74C1-E279-4AA8-B6D2-EB35FBB7F8AC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A5C65844-F3C9-4696-B67A-A68149232CDB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A5C65844-F3C9-4696-B67A-A68149232CDB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A5C65844-F3C9-4696-B67A-A68149232CDB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A5C65844-F3C9-4696-B67A-A68149232CDB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{44C8F779-BCD9-4B79-A31C-AC31A7292B7C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{44C8F779-BCD9-4B79-A31C-AC31A7292B7C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{44C8F779-BCD9-4B79-A31C-AC31A7292B7C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{44C8F779-BCD9-4B79-A31C-AC31A7292B7C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
-		{7C65A996-15FB-4A66-88A7-E365F51513AA} = {C2EF976B-DB43-4767-ADC1-7F70F4F2AF97}
-		{45FEBD66-4954-4B55-BA2B-CC97485FCFFE} = {7C65A996-15FB-4A66-88A7-E365F51513AA}
-		{AE6E4576-4AAF-4F89-80A4-762344271F32} = {7C65A996-15FB-4A66-88A7-E365F51513AA}
-		{0FE42952-77C1-4238-AD41-805DABAC3B0B} = {7C65A996-15FB-4A66-88A7-E365F51513AA}
-		{D95205F1-D2CE-4690-893C-8C417F4564D3} = {7C65A996-15FB-4A66-88A7-E365F51513AA}
+		{5FAC62AD-47CB-459A-AD9F-FD1C028AF147} = {A7A9BD91-A3D6-48F9-BC0C-E59AB79E1B37}
+		{1ECAF926-130D-4808-B916-8F9647356CF8} = {5FAC62AD-47CB-459A-AD9F-FD1C028AF147}
+		{F81A74C1-E279-4AA8-B6D2-EB35FBB7F8AC} = {5FAC62AD-47CB-459A-AD9F-FD1C028AF147}
+		{A5C65844-F3C9-4696-B67A-A68149232CDB} = {5FAC62AD-47CB-459A-AD9F-FD1C028AF147}
+		{44C8F779-BCD9-4B79-A31C-AC31A7292B7C} = {5FAC62AD-47CB-459A-AD9F-FD1C028AF147}
 	EndGlobalSection
 EndGlobal

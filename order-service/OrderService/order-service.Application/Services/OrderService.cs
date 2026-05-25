@@ -7,6 +7,9 @@ using order_service.Application.Publishers;
 using System.Text.Json;
 using System.ComponentModel;
 using Microsoft.Extensions.Logging;
+using order_service.Application.Observability;
+using System.Diagnostics;
+using OpenTelemetry.Trace;
 
 namespace order_service.Application.Services;
 
@@ -37,43 +40,160 @@ public class OrderService : IOrderService
         CreateOrderInputModel input, 
         CancellationToken cancellationToken = default)
     {
-        var order = new Order(input.Description, input.Amount);
+        using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+            "order.create",
+            ActivityKind.Internal);
 
-        var @event = new OrderCreatedEvent(
-            EventId: Guid.NewGuid(),
-            OrderId: order.Id, 
-            Amount:order.Amount,
-            CreatedAt: DateTime.UtcNow);    
+        var sw = Stopwatch.StartNew();
 
-        var outboxMessage = new OutboxMessage(
-            aggregateId: order.Id,
-            eventType: nameof(OrderCreatedEvent),
-            payload: JsonSerializer.Serialize(@event, JsonOptions),
-            exchange: OrderEventsExchange,
-            routingKey: OrderCreatedRoutingKey);
+        try
+        {
+            var order = new Order(input.Description, input.Amount);
 
-        // Transação atomica: order + outbox ou nada
-        await _orderRepository.AddAsync(order, cancellationToken);
-        await _outboxRepository.AddAsync(outboxMessage, cancellationToken);
-        await _orderRepository.SaveChangesAsync(cancellationToken); 
+            activity?.SetTag("order.id", order.Id.ToString());
+            activity?.SetTag("order.amount", input.Amount);
+            activity?.SetTag("order.amount_range", GetAmountRange(input.Amount));
 
-        return OrderViewModel.FromEntity(order);
+            var @event = new OrderCreatedEvent(
+                EventId: Guid.NewGuid(),
+                OrderId: order.Id, 
+                Amount:order.Amount,
+                CreatedAt: DateTime.UtcNow);    
+
+            var outboxMessage = new OutboxMessage(
+                aggregateId: order.Id,
+                eventType: nameof(OrderCreatedEvent),
+                payload: JsonSerializer.Serialize(@event, JsonOptions),
+                exchange: OrderEventsExchange,
+                routingKey: OrderCreatedRoutingKey);
+
+            // Sub-span para isolar a latência da persistência
+            using (var dbActivity = ApplicationTelemetry.ActivitySource.StartActivity(
+                "order.create.db",
+                ActivityKind.Internal))
+            {   
+                dbActivity?.SetTag("db.system", "mssql");
+                dbActivity?.SetTag("db.operation", "insert");
+                dbActivity?.SetTag("db.sql_server.database", "OrderDb");
+                dbActivity?.SetTag("db.rows_affected", 2);
+
+                // Transação atomica: order + outbox ou nada
+                await _orderRepository.AddAsync(order, cancellationToken);
+                await _outboxRepository.AddAsync(outboxMessage, cancellationToken);
+                await _orderRepository.SaveChangesAsync(cancellationToken); 
+
+                dbActivity?.SetStatus(ActivityStatusCode.Ok);
+            }
+
+            sw.Stop();
+
+            activity?.SetStatus(ActivityStatusCode.Ok);
+
+            // Métrica de latência de persistência
+            ApplicationTelemetry.OrderPersistenceDuration.Record(
+                sw.Elapsed.TotalSeconds,
+                new KeyValuePair<string, object?>("result", "sucess"));
+
+            // Contador de pedidos criados
+            ApplicationTelemetry.OrdersCreated.Add(1,
+                new KeyValuePair<string, object?>("amount.range", GetAmountRange(input.Amount)));
+
+            _logger.LogInformation(
+                "Order {OrderId} created successfully. Amount={Amount}",
+                order.Id, order.Amount);    
+        
+            return OrderViewModel.FromEntity(order);    
+        }  
+        catch (Exception ex)
+        {
+            sw.Stop();
+
+            // Marca o span como erro - vermelho no Jaeger
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
+
+            ApplicationTelemetry.OperationErrors.Add(1, 
+                new KeyValuePair<string, object?>("operation", "create"));
+
+            ApplicationTelemetry.OrderPersistenceDuration.Record(
+                sw.Elapsed.TotalSeconds,
+                new KeyValuePair<string, object?>("result", "error"));
+
+
+            _logger.LogError(ex, "Failed to create order");
+
+            throw;
+        }
     }
 
     public async Task<OrderViewModel?> GetByIdAsync(
         Guid id, 
         CancellationToken cancellationToken = default)
     {
-        var order = await _orderRepository.GetByIdAsync(id, cancellationToken);
+        using var activiy = ApplicationTelemetry.ActivitySource.StartActivity(
+            "order.get",
+            ActivityKind.Internal
+        );
 
-        return order is null ? null: OrderViewModel.FromEntity(order);
+        activiy?.SetTag("order.id", id.ToString());
+        activiy?.SetTag("db.system", "mssql");
+        activiy?.SetTag("db.operation", "select");
+
+        try
+        {
+            var order = await _orderRepository.GetByIdAsync(id, cancellationToken);
+
+            activiy?.SetTag("order.found", order is not null);
+            activiy?.SetStatus(ActivityStatusCode.Ok);
+
+            return order is null ? null: OrderViewModel.FromEntity(order);
+        }
+        catch (Exception ex)
+        {
+            activiy?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activiy?.RecordException(ex);
+
+            throw;
+        }
+
+        
     }
 
     public async Task<IEnumerable<OrderViewModel>> GetAllAsync(
         CancellationToken cancellationToken = default)
     {
-        var orders = await _orderRepository.GetAllAsync(cancellationToken);
+        using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+            "order.list",
+            ActivityKind.Internal
+        );
 
-        return orders.Select(OrderViewModel.FromEntity);
+        activity?.SetTag("db.system", "mssql");
+        activity?.SetTag("db.operation", "select");
+    
+        try
+        {
+            var orders = await _orderRepository.GetAllAsync(cancellationToken);
+            var result = orders.Select(OrderViewModel.FromEntity).ToList();
+
+            activity?.SetTag("orders.count", result.Count);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
+
+            throw;
+        }
     }
+
+    private static string GetAmountRange(decimal amount) => amount switch
+    {
+        < 100 => "0-100",
+        < 500 => "100-500",
+        < 1000 => "500-1000",
+        _ => "1000+"
+    };
 }

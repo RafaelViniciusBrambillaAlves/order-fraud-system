@@ -11,7 +11,9 @@ using RabbitMQ.Client.Events;
 using RabbitMQ.Client.Exceptions;
 using System.Collections;
 using System.Text;
-
+using order_service.Application.Observability;
+using System.Diagnostics;
+using OpenTelemetry.Trace;
 
 
 namespace order_service.Infrastructure.Messaging;
@@ -104,7 +106,7 @@ public class DlqWorker : BackgroundService, IDisposable
 
     private void StartConsuming()
     {
-        if (_channel is null || _channel.IsOpen)
+        if (_channel is null || !_channel.IsOpen)
         {
             _logger.LogWarning(
                 "DlqWorker channel unavailable, skipping consumer registration | Queue={Queue}",
@@ -119,9 +121,33 @@ public class DlqWorker : BackgroundService, IDisposable
         {
             var deliveryTag = eventArgs.DeliveryTag;
 
+            using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+            $"dlq.process {_options.Queue}",
+            ActivityKind.Consumer);
+
             try
             {
                 var dlqMessage = ExtractDlqMessage(eventArgs);
+
+                activity?.SetTag("messaging.system", "rabbitmq");
+                activity?.SetTag("messaging.destination", _options.Queue);
+                activity?.SetTag("messaging.operation", "receive");
+                activity?.SetTag("dlq.message_id", dlqMessage.MessageId);
+                activity?.SetTag("dlq.event_type", dlqMessage.EventType);
+                activity?.SetTag("dlq.source_queue", dlqMessage.SourceQueue);
+                activity?.SetTag("dlq.routing_key", dlqMessage.RoutingKey);
+                activity?.SetTag("dlq.death_reason", dlqMessage.DeathReason);
+                activity?.SetTag("dlq.death_count", dlqMessage.DeathCount);
+
+                // DLQ
+                activity?.SetStatus(ActivityStatusCode.Error,
+                $"Dead letter: {dlqMessage.DeathReason} from {dlqMessage.SourceQueue}");
+
+                // Métrica com tags para segmentar por tipo de falha
+                ApplicationTelemetry.DlqMessagesReceived.Add(1,
+                    new KeyValuePair<string, object?>("death_reason", dlqMessage.DeathReason),
+                    new KeyValuePair<string, object?>("source_queue", dlqMessage.SourceQueue),
+                    new KeyValuePair<string, object?>("event_type", dlqMessage.EventType));
 
                 _logger.LogError(
                      "Dead letter message received | " +
@@ -151,6 +177,12 @@ public class DlqWorker : BackgroundService, IDisposable
             }
             catch (Exception ex)
             {
+                activity?.RecordException(ex);
+
+                ApplicationTelemetry.OperationErrors.Add(1,
+                    new KeyValuePair<string, object?>("operation", "dlq.process"),
+                    new KeyValuePair<string, object?>("queue", _options.Queue));
+
                 _logger.LogError(ex, 
                     "DlqWorker failed to process dead letter message | " +
                     "Queue={Queue} DeliveryTag={Tag}",

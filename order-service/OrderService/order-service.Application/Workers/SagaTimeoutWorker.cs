@@ -2,9 +2,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using order_service.Application.Services;
 using order_service.Application.Settings;
 using order_service.Domain.Repositories;
+using order_service.Application.Observability;
+using System.Diagnostics;
+using OpenTelemetry.Trace;
 
 namespace order_service.Application.Workers;
 
@@ -65,56 +67,110 @@ public sealed class SagaTimeoutWorker : BackgroundService
     }
 
     private async Task CheckAndExpireAsync(CancellationToken cancellationToken)
-    {
+    {   
+        using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+            "saga.timeout.check", 
+            ActivityKind.Internal);
+
+        var sw = Stopwatch.StartNew();
+
         await using var scope = _scopeFactory.CreateAsyncScope();
 
         var orderRepository = scope.ServiceProvider
             .GetRequiredService<IOrderRepository>();
         
-        var timedOutOrders = await orderRepository.GetPendingTimedOutAsync(
-            _settings.FraudAnalysisTimeout,
-            cancellationToken);
-
-        if (timedOutOrders.Count == 0)
+        try
         {
-            _logger.LogDebug(
-                "SagaTimeoutWorker: no timed-out orders found.");
-            return;
+            var timedOutOrders = await orderRepository.GetPendingTimedOutAsync(
+                _settings.FraudAnalysisTimeout,
+                cancellationToken);
+
+            if (timedOutOrders.Count == 0)
+            {
+                _logger.LogDebug(
+                    "SagaTimeoutWorker: no timed-out orders found.");
+
+                activity?.SetStatus(ActivityStatusCode.Ok);
+                return;
+            }
+
+            _logger.LogWarning(
+                "SagaTimeoutWorker: {Count} order(s) timed out. Processing...",
+                timedOutOrders.Count);
+            
+            var count = 0;
+
+            foreach (var order in timedOutOrders)
+            {   
+                using var orderActivity = ApplicationTelemetry.ActivitySource.StartActivity(
+                    "saga.timeout.cancel",
+                    ActivityKind.Internal);
+
+                orderActivity?.SetTag("order.id", order.Id.ToString());
+                orderActivity?.SetTag("order.status", order.Status.ToString());
+                orderActivity?.SetTag("saga.timeout.seconds", _settings.FraudAnalysisTimeout.TotalSeconds);
+                orderActivity?.SetTag("saga.started_at", order.SagaStartedAt?.ToString("O"));
+
+                try
+                {
+                    order.MarkAsTimedOut();
+
+                    count++; 
+
+                    ApplicationTelemetry.SagaTimeouts.Add(1,
+                    new KeyValuePair<string, object?>("reason", "timeout"));
+
+                    await orderRepository.SaveChangesAsync(cancellationToken);
+
+                    _logger.LogWarning(
+                        "Order saga timed out | " +
+                        "OrderId={OrderId} " +
+                        "SagaStartedAt={SagaStartedAt} " +
+                        "Timeout={Timeout}",
+                        order.Id,
+                        order.SagaStartedAt,
+                        _settings.FraudAnalysisTimeout);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    orderActivity?.SetStatus(ActivityStatusCode.Ok);
+
+                    _logger.LogInformation(ex,
+                        "Order already processed, skipping timeout | OrderId={OrderId}",
+                        order.Id);
+                }
+                catch (Exception ex)
+                {
+                    orderActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                    orderActivity?.RecordException(ex);
+
+                    _logger.LogError(ex,
+                        "Failed to expire order | OrderId={OrderId}",
+                        order.Id);
+                }
+
+                sw.Stop();
+
+                activity?.SetTag("saga.timeout.cancelled_count", count);
+                activity?.SetStatus(ActivityStatusCode.Ok);
+
+                ApplicationTelemetry.SagaTimeoutCheckDuration.Record(
+                    sw.Elapsed.TotalSeconds,
+                    new KeyValuePair<string, object?>("cancelled", count));
+
+            }
         }
-
-        _logger.LogWarning(
-            "SagaTimeoutWorker: {Count} order(s) timed out. Processing...",
-            timedOutOrders.Count);
-        
-        foreach (var order in timedOutOrders)
+        catch (Exception ex)
         {
-            try
-            {
-                order.MarkAsTimedOut();
+            sw.Stop();
 
-                await orderRepository.SaveChangesAsync(cancellationToken);
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+            activity?.RecordException(ex);
 
-                _logger.LogWarning(
-                    "Order saga timed out | " +
-                    "OrderId={OrderId} " +
-                    "SagaStartedAt={SagaStartedAt} " +
-                    "Timeout={Timeout}",
-                    order.Id,
-                    order.SagaStartedAt,
-                    _settings.FraudAnalysisTimeout);
-            }
-            catch (InvalidOperationException ex)
-            {
-                _logger.LogInformation(ex,
-                    "Order already processed, skipping timeout | OrderId={OrderId}",
-                    order.Id);
-            }
-            catch (Exception ex)
-            {
-                 _logger.LogError(ex,
-                    "Failed to expire order | OrderId={OrderId}",
-                    order.Id);
-            }
+            ApplicationTelemetry.OperationErrors.Add(1,
+                new KeyValuePair<string, object?>("operation", "saga.timeout.check"));
+
+            throw;
         }
     }
 }

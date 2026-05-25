@@ -9,6 +9,10 @@ using Polly;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RabbitMQ.Client.Exceptions;
+using order_service.Application.Observability;
+using System.Diagnostics;
+using order_service.Application.Services;
+using OpenTelemetry.Trace;
 
 namespace order_service.Infrastructure.Messaging;
 
@@ -128,9 +132,31 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         string eventType,
         CancellationToken cancellationToken = default)
     {
+        using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+            $"rabbitmq.publish {exchange}/{routingKey}",
+            ActivityKind.Producer);
+        
+        activity?.SetTag("messaging.system", "rabbitmq");
+        activity?.SetTag("messaging.destination", exchange);
+        activity?.SetTag("messaging.destination_kind", "exchange");
+        activity?.SetTag("messaging.rabbitmq.routing_key", routingKey);
+        activity?.SetTag("messaging.operation", "publish" );
+        activity?.SetTag("messaging.event_type", eventType);
+
         var connected  = EnsureChannelIsOpen();
         
-        if (!connected || _channel is not null)
+        if (!connected || _channel is null)
+        {
+            var conErr = "RabbitMQ channel unavailable — message not published";
+
+            activity?.SetStatus(ActivityStatusCode.Error, conErr);
+
+            ApplicationTelemetry.OperationErrors.Add(1, 
+                new KeyValuePair<string, object?>("operation", "publish"),
+                new KeyValuePair<string, object?>("exchange", exchange));
+
+            throw new InvalidOperationException(conErr);
+        }
 
         lock (_lock)
         {
@@ -144,9 +170,15 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
 
             properties.Type = eventType;
             properties.AppId = "order-service";
+            // OTEL: injeta
+            // Conecta o trace do publisher com o consumer, mesmo que
+            // a mensagem fique na fila por horas antes de ser consumida.
+            properties.InjectTraceContext();
+
+            activity?.SetTag("messaging.message_id", properties.MessageId);
 
             try
-            {
+            {       
                 _channel.BasicPublish(
                     exchange: exchange,
                     routingKey: routingKey,
@@ -159,9 +191,14 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
 
                 if (!confirmed)
                 {
+                    activity?.SetStatus(ActivityStatusCode.Error, "Broker did not confirm message");
                     throw new Exception(
                         $"Broker did not confirm message. Exchange={exchange} RoutingKey={routingKey}");
                 }
+
+                activity?.SetTag("messaging.confirmed", true);
+                activity?.SetStatus(ActivityStatusCode.Ok);
+
 
                 _logger.LogInformation(
                      "Published | Exchange={Exchange} RoutingKey={RoutingKey} Type={Type}",
@@ -172,6 +209,13 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
             }
             catch (Exception ex)
             {
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                activity?.RecordException(ex);
+
+                ApplicationTelemetry.OperationErrors.Add(1, 
+                new KeyValuePair<string, object?>("operation", "publish"),
+                new KeyValuePair<string, object?>("exchange", exchange));
+
                 _logger.LogInformation(
                     ex,
                     "Error publishing message | Exchange={Exchange} RoutingKey={RoutingKey}",

@@ -1,12 +1,13 @@
-using System;
-using System.IO.Pipes;
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using order_service.Application.Observability;
 using order_service.Application.Subscribers;
-using Polly;
+using Polly;    
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using RabbitMQ.Client.Exceptions;
+using OpenTelemetry.Trace;
 
 /// Subscriber responsável por:
 /// Conectar no RabbitMQ
@@ -112,10 +113,22 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
         {   
             // Identificador da mensagem
             var deliveryTag = eventArgs.DeliveryTag;
+
+            var parentContext = eventArgs.BasicProperties?.Headers
+                .ExtractTraceContext();
+
+            using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
+                $"rabbitmq.consume {queue}",
+                ActivityKind.Consumer,
+                parentContext?.ActivityContext ?? default(ActivityContext));
+
+            activity?.SetTag("messaging.system", "rabbitmq");
+            activity?.SetTag("messaging.destination", queue);
+            activity?.SetTag("messaging.operation", "receive");
+            activity?.SetTag("messaging.rabbitmq.routing_key", eventArgs.RoutingKey);
             
             // Extrai metadados do header
             // MessageId é setado pelo RabbitMqPublisher em cada mensagem publicada.
-
             var messageId = eventArgs.BasicProperties?.MessageId;
 
             if (string.IsNullOrWhiteSpace(messageId))
@@ -129,11 +142,12 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
                     queue, deliveryTag, messageId);    
             }
 
+            activity?.SetTag("messaging.message_id", messageId);
+
             var metadata = new MessageMetadata(
                 EventId: messageId,
                 EventType: eventArgs.BasicProperties?.Type ?? string.Empty,
-                RoutingKey: eventArgs.RoutingKey
-            );
+                RoutingKey: eventArgs.RoutingKey);
 
             try
             {
@@ -141,17 +155,24 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
                     "Message received | Queue={Queue} DeliveryTag={Tag} RoutingKey={Key}",
                     queue, deliveryTag, eventArgs.RoutingKey);
 
-                    // Executa processamento da mensagem
-                    await handler(eventArgs.Body, metadata, CancellationToken.None);
+                // Executa processamento da mensagem
+                await handler(eventArgs.Body, metadata, CancellationToken.None);
 
-                     // ACK = RabbitMQ remove mensagem da fila
-                    _channel!.BasicAck(deliveryTag, multiple: false);
+                    // ACK = RabbitMQ remove mensagem da fila
+                _channel!.BasicAck(deliveryTag, multiple: false);
 
-                    _logger.LogDebug(
-                        "Message ACKed | Queue={Queue} DeliveryTag={Tag}", queue, deliveryTag);
+                _logger.LogDebug(
+                    "Message ACKed | Queue={Queue} DeliveryTag={Tag}", queue, deliveryTag);
             }
             catch (Exception ex)
             {
+                activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
+                activity?.RecordException(ex);
+
+                ApplicationTelemetry.OperationErrors.Add(1,
+                    new KeyValuePair<string, object?>("operation", "rabbitmq.consume"),
+                    new KeyValuePair<string, object?>("queue", queue));
+
                 _logger.LogDebug(ex,
                     "Error processing message | Queue={Queue} DeliveryTag={Tag}. Sending NACK -> DLQ.",
                     queue, deliveryTag);
