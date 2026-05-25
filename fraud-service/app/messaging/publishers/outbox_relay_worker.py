@@ -1,8 +1,16 @@
 import asyncio 
+import time
 import logging
 from motor.motor_asyncio import AsyncIOMotorClient
 import aio_pika
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 from app.domain.repositories.outbox_message_repository_interface import IOutboxMessageRepository
+from app.observability.telemetry import tracer
+from app.observability.amqp_propagation import inject_trace_context
+from app.observability import fraud_metrics
+from opentelemetry.trace import SpanKind
+from app.domain.enums.outbox_status import OutboxStatus
 
 
 logger = logging.getLogger(__name__)
@@ -66,46 +74,147 @@ class OutboxRelayWorker:
         if not messages:
             return 
         
-        logger.info(
-            "OutboxRelay: processing %d pending message(s).", 
-            len(messages)
-        )
+        with tracer.start_as_current_span(
+            "outbox.relay.cycle",
+            kind = SpanKind.INTERNAL
+        ) as cycle_span:
 
-        async with await self._connection.channel() as channel:
-            for msg in messages:
-                try:
-                    exchange = await channel.get_exchange(msg.exchange,)
+            pending_count = len(messages)
+            event_types = list({msg.event_type for msg in messages})
 
-                    amqp_message = aio_pika.Message(
-                        body = msg.payload.encode(),
-                        content_type = "application/json",
-                        delivery_mode = aio_pika.DeliveryMode.PERSISTENT,
-                        message_id = str(msg.id),
-                        type = msg.event_type
-                    )
+            cycle_span.set_attribute("outbox.batch.size", pending_count)
+            cycle_span.set_attribute("outbox.pending_count", pending_count)
+            cycle_span.set_attribute("outbox.event_types", ",".join(event_types))
 
-                    await exchange.publish(
-                        amqp_message, 
-                        routing_key = msg.routing_key
-                    )
+            start = time.perf_counter()
+            published = 0
+            failed = 0
+        
+            async with await self._connection.channel() as channel:
 
-                    msg.mark_as_sent()
+                for msg in messages:
+                    
+                    await self._publish_message(channel, msg)
 
-                    logger.info(
-                        "Outbox sent | id=%s event=%s routing_key=%s",
-                        msg.id, msg.event_type, msg.routing_key,
-                    )
+                    if msg.status == OutboxStatus.SENT:
+                        published += 1
 
-                except Exception as exc:
-                    logger.error(
-                        "Outbox publish failed | id=%s attempt=%d error=%s",
-                        msg.id, msg.retry_count + 1, exc,
-                    )
-                    msg.mark_as_failed(str(exc))
+                    else:
+                        failed += 1
+                
+            elapsed = time.perf_counter() - start
 
-                finally:
-                    await self._repository.save_async(msg)
+            cycle_span.set_attribute("outbox.batch.published", published)
+            cycle_span.set_attribute("outbox.batch.failed", failed)
+
+            if failed == pending_count and pending_count > 0:
+                cycle_span.set_status(Status(StatusCode.ERROR, "All messages failed to publish"))
+            
+            else:
+                cycle_span.set_status(Status(StatusCode.OK))
+            
+            fraud_metrics.outbox_relay_duration.record(
+                elapsed,
+                {"published": published, "failed": failed}
+            )
+
+            logger.info(
+                "OutboxRelay cycle | published=%d failed=%d duration=%.3fs",
+                published,
+                failed,
+                elapsed,
+            )
 
 
+    async def _publish_message(self, channel, msg) -> None:
+        """
+        Publica uma única mensagem e atualiza seu status no repositório
+        """
 
+        with tracer.start_as_current_span(
+            f"outbox.relay.publish {msg.exchange}/{msg.routing_key}",
+            kind = SpanKind.PRODUCER
+        ) as msg_span:
+            
+            msg_span.set_attribute("messaging.system", "rabbitmq")
+            msg_span.set_attribute("messaging.destination", msg.exchange)
+            msg_span.set_attribute("messaging.destination_kind", "exchange")
+            msg_span.set_attribute("messaging.rabbitmq.routing_key", msg.routing_key)
+            msg_span.set_attribute("messaging.operation", "publish")
+            msg_span.set_attribute("outbox.message_id", str(msg.id))
+
+            msg_span.set_attribute("outbox.event_type", msg.event_type)
+            msg_span.set_attribute("outbox.message_id", str(msg.id))
+
+            try:
+                exchange = await channel.get_exchange(msg.exchange)
+
+                headers: dict = {}
+                inject_trace_context(headers)
+
+                amqp_message = aio_pika.Message(
+                    body = msg.payload.encode(),
+                    content_type = "application/json",
+                    delivery_mode = aio_pika.DeliveryMode.PERSISTENT,
+                    message_id = str(msg.id),
+                    type = msg.event_type,
+                    headers = headers
+                )
+                
+                publish_start = time.perf_counter()
+
+                await exchange.publish(
+                    amqp_message, 
+                    routing_key = msg.routing_key
+                )
+
+                publish_elapsed = time.perf_counter() - publish_start
+
+                fraud_metrics.publisher_duration.record(
+                    publish_elapsed,
+                    {
+                        "exchange": msg.exchange,
+                        "routing_key": msg.routing_key
+                    }
+                )
+
+                msg.mark_as_sent()
+
+                msg_span.set_status(Status(StatusCode.OK))
+
+                fraud_metrics.outbox_messages_published_total.add(1, {
+                    "routing_key": msg.routing_key
+                })
+
+                logger.info(
+                    "Outbox sent | id=%s event=%s routing_key=%s",
+                    msg.id, 
+                    msg.event_type, 
+                    msg.routing_key,
+                )
+
+            except Exception as exc:
+                
+                msg_span.record_exception(exc)
+                msg_span.set_status(Status(StatusCode.ERROR, str(exc)))
+
+                fraud_metrics.processing_errors_total.add(1, {
+                    "stage": "outbox_relay_publish"
+                })
+                fraud_metrics.outbox_messages_failed_total.add(
+                    1, 
+                    {"routing_key": msg.routing_key}
+                )
+
+                logger.error(
+                    "Outbox publish failed | id=%s attempt=%d error=%s",
+                    msg.id, 
+                    msg.retry_count + 1, 
+                    exc,
+                )
+                msg.mark_as_failed(str(exc))
+
+            finally:
+                await self._repository.save_async(msg)
+                
 

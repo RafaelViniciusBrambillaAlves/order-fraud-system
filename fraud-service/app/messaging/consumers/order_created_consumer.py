@@ -1,5 +1,8 @@
 import aio_pika
 import logging
+import time
+from opentelemetry import trace
+
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.schemas.order_created_event import OrderCreatedEvent
 from app.application.handlers.order_created_handler import handle_order_created
@@ -10,6 +13,11 @@ from app.domain.repositories.inbox_message_repository_interface import IInboxRep
 from app.domain.entities.inbox_message import InboxMessage
 from app.application.handlers.order_created_handler import handle_order_created
 from app.schemas.order_created_event import OrderCreatedEvent
+from app.observability.telemetry import tracer
+from app.observability.amqp_propagation import extract_trace_context
+from app.observability import fraud_metrics
+from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import SpanKind
 
 logger = logging.getLogger(__name__)    
 
@@ -44,10 +52,6 @@ class OrderCreatedConsumer:
             durable = True
         )
 
-        # queue = await channel.declare_queue(
-        #     self.QUEUE, 
-        #     durable = True
-        # )
         queue = await channel.declare_queue(
             self.QUEUE,
             durable = True,
@@ -73,55 +77,96 @@ class OrderCreatedConsumer:
         self, 
         message: aio_pika.IncomingMessage
     ) -> None:
+        
+        parent_context = extract_trace_context(message.headers)
 
-        async with message.process(requeue = False):
+        with tracer.start_as_current_span(
+            name = "rabbitmq.consume order.created",
+            context = parent_context,
+            kind = SpanKind.CONSUMER
+        ) as span:
 
-            try:
-                event = OrderCreatedEvent.model_validate_json(message.body)
+            span.set_attribute("messaging.system", "rabbitmq")
+            span.set_attribute("messaging.destination", self.QUEUE)
+            span.set_attribute("messaging.destination_kind", "exchange")
+            span.set_attribute("messaging.operation", "receive")
+            span.set_attribute("messaging.rabbitmq.routing_key", "order.created")   
 
-                async with await self._mongo_client.start_session() as session:
+            fraud_metrics.messages_received_total.add(1)  
 
-                    async with session.start_transaction():
+            start = time.perf_counter()
 
-                       already_processed = (
-                           await self._inbox_repository.exists_async(
-                               event.event_id,
-                               session = session
-                           )
-                       )
+            async with message.process(requeue = False):
 
-                    if already_processed:
+                try:
+                    event = OrderCreatedEvent.model_validate_json(message.body)
 
-                        logger.warning(
-                            "Message already processed | event_id=%s",
-                            event.event_id
+                    span.set_attribute("order.id", str(event.order_id))
+
+                    async with await self._mongo_client.start_session() as session:
+
+                        async with session.start_transaction():
+
+                            already_processed = (
+                                await self._inbox_repository.exists_async(
+                                    event.event_id,
+                                    session = session
+                                )
+                            )
+
+                        if already_processed:
+
+                            fraud_metrics.duplicate_messages_total.add(1)
+
+                            logger.warning(
+                                "Message already processed | event_id=%s",
+                                event.event_id
+                            )
+
+                            return 
+                        
+                        await handle_order_created(
+                            event = event,
+                            order_repository = self._order_repository,
+                            outbox_repository = self._outbox_repository,
+                            session = session 
                         )
 
-                        return 
+                        inbox_message = InboxMessage.create(
+                            event_id = event.event_id
+                        )
+
+                        await self._inbox_repository.add_async(
+                            inbox_message,
+                            session = session
+                        )
                     
-                    await handle_order_created(
-                        event = event,
-                        order_repository = self._order_repository,
-                        outbox_repository = self._outbox_repository,
-                        session = session 
+                    duration = time.perf_counter() - start
+
+                    fraud_metrics.message_processing_duration.record(
+                        duration,
+                        {"result": "success"}
+                    )
+                
+                except Exception as exc:
+                    duration = time.perf_counter() - start
+
+                    span.record_exception(exc)
+                    span.set_status(Status(StatusCode.ERROR, str(exc)))
+
+                    fraud_metrics.processing_errors_total.add(
+                        1, {"stage": "consumer"}
                     )
 
-                    inbox_message = InboxMessage.create(
-                        event_id = event.event_id
+                    fraud_metrics.message_processing_duration.record(
+                        duration, {"result": "error"}
                     )
 
-                    await self._inbox_repository.add_async(
-                        inbox_message,
-                        session = session
+                    logger.error(
+                        "Error processing message: %s",
+                        exc,
+                        exc_info = True
                     )
-            
-            except Exception as exc:
 
-                logger.error(
-                    "Error processing message: %s",
-                    exc,
-                    exc_info = True
-                )
-
-                raise
+                    raise
             

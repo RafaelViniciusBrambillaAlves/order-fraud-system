@@ -12,11 +12,17 @@ from app.messaging.publishers.outbox_relay_worker import OutboxRelayWorker
 from app.infrastructure.database.repositories.mongo_inbox_repository import MongoInboxRepository
 from app.messaging.consumers.dlq_consumer import DlqConsumer
 import asyncio
+from app.observability.telemetry import setup_telemetry, instrument_app
 
 logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+
+    # setup_telemetry(
+    #     otlp_endpoint = settings.otlp_endpoint
+    # )
+    # instrument_app(app)
 
     mongo_client = AsyncIOMotorClient(settings.mongodb_url)
 
@@ -75,5 +81,3 @@ async def lifespan(app: FastAPI):
     mongo_client.close()
 
     logger.info("Fraud service stopped")
-
-

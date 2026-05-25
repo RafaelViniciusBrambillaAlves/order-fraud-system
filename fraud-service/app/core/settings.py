@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     rabbitmq_password: str
     rabbitmq_url: str
     rabbitmq_heartbeat: int = 60
+    otlp_endpoint: str
 
     model_config = SettingsConfigDict(
         env_file = ".env",
