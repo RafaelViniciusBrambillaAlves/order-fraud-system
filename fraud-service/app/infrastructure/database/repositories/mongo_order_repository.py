@@ -1,6 +1,14 @@
+"""
+Repositório MongoDB para pedidos analisados pelo fraud-service.
+"""
+import logging
+
 from app.domain.repositories.order_repository_interface import IOrderRepository
 from app.domain.entities.order import Order
 from typing import List, Optional, Any
+
+logger = logging.getLogger(__name__)
+
 
 class MongoOrderRepository(IOrderRepository):
 
@@ -33,10 +41,10 @@ class MongoOrderRepository(IOrderRepository):
         return None
 
     async def list_all(self) -> List[Order]:
-        cursor = self.collection.find()
+        docs = await self.collection.find().to_list(length = 100)
         orders = []
-
-        for doc in await cursor.to_list(length = 100):
+        
+        for doc in docs:
             doc['id'] = doc.pop('_id')
             orders.append(Order(**doc))
 

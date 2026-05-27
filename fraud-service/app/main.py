@@ -1,14 +1,14 @@
-from fastapi import FastAPI
-
-from app.core.startup import lifespan
-from app.api.routes.health_routes import router as health_router
-from app.api.routes.order_routes import router as order_router
 from app.observability.telemetry import setup_telemetry, instrument_app
 from app.core.settings import settings
 
 setup_telemetry(
     otlp_endpoint = settings.otlp_endpoint
 )
+
+from fastapi import FastAPI
+from app.core.startup import lifespan
+from app.api.routes.health_routes import router as health_router
+from app.api.routes.order_routes import router as order_router
 
 app = FastAPI(
     title = "Fraud Service",

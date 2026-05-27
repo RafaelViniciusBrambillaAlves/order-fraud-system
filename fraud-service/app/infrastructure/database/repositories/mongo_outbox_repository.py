@@ -1,3 +1,8 @@
+"""
+Repositório MongoDB para mensagens de outbox.
+"""
+import asyncio
+import logging
 from typing import List, Any
 from uuid import UUID
 from datetime import datetime, timezone
@@ -8,14 +13,16 @@ from app.domain.repositories.outbox_message_repository_interface import IOutboxM
 from app.domain.entities.outbox_message import OutboxMessage
 from app.domain.enums.outbox_status import OutboxStatus
 
+logger = logging.getLogger(__name__)
+
 class MongoOutboxRepository(IOutboxMessageRepository):
 
     COLLECTION = "outbox_messages"
 
     def __init__(self, db: AsyncIOMotorDatabase) -> None:
         self._collection = db[self.COLLECTION]
-
-
+    
+    # Escrita 
     async def add_async(
         self, 
         message: OutboxMessage, 
@@ -25,24 +32,6 @@ class MongoOutboxRepository(IOutboxMessageRepository):
             self._to_document(message), 
             session = session
         )
-
-
-    async def get_pending_async(
-        self, 
-        limit: int = 50
-    ) -> List[OutboxMessage]:
-        cursor = (
-            self._collection
-            .find({
-                "status": int(OutboxStatus.PENDING)
-            })
-            .sort("created_at", 1)
-            .limit(limit)
-        )
-        docs = await cursor.to_list(length = limit)
-
-        return [self._from_document(d) for d in docs]        
-
 
     async def save_async(
         self, 
@@ -65,7 +54,48 @@ class MongoOutboxRepository(IOutboxMessageRepository):
                 }
             }
         )
+    
 
+    # Leitura
+
+    async def get_pending_async(
+        self, 
+        limit: int = 50
+    ) -> List[OutboxMessage]:
+        cursor = (
+            self._collection
+            .find({"status": int(OutboxStatus.PENDING)})
+            .sort("created_at", 1)
+            .limit(limit)
+        )
+        docs = await cursor.to_list(length = limit)
+
+        return [self._from_document(d) for d in docs]   
+
+    async def count_pending_async(self) -> int:
+        return await self._collection.count_documents(
+            {"status": int(OutboxStatus.PENDING)}
+        )     
+    
+    def count_peding_sync(self) -> int:
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+
+                future = asyncio.run_coroutine_threadsafe(
+                    self.count_peding_sync(), loop
+                )
+                return future.result(timeout = 2.0)
+            
+            else:
+                return loop.run_until_complete(self.count_peding_async())
+        
+        except Exception as exc:
+            logger.warning(
+                "Falha ao obter contagem de outbox pendentes para gauge | error=%s", exc
+            )
+
+            return 0 
 
     # helpers
     @staticmethod

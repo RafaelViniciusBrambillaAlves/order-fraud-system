@@ -1,5 +1,17 @@
+"""
+Consumer da Dead Letter Queue do fraud-service.
+ 
+Para cada mensagem DLQ:
+  - Extrai headers x-death injetados pelo RabbitMQ
+  - Emite log estruturado de nível ERROR
+  - Registra métricas com death_reason, source_queue, event_type
+  - Hook on_dead_letter_received() para integrações futuras (Sentry, Slack, etc.)
+  - Envia ACK após processamento bem-sucedido
+"""
+
 import aio_pika
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any 
 from opentelemetry import trace
@@ -8,6 +20,7 @@ from app.messaging.models.dlq_message import DlqMessage
 from app.observability.telemetry import tracer
 from app.observability import fraud_metrics
 from opentelemetry.trace import SpanKind
+from app.observability.amqp_propagation import extract_trace_context
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +44,7 @@ class DlqConsumer:
             self._queue_name,
             durable = True,
             arguments = {
-                "x-message-ttl": 604800000,
+                "x-message-ttl": 604_800_000, # 7 dias
                 "x-queue-type": "classic"
             }
         ) 
@@ -47,13 +60,21 @@ class DlqConsumer:
         self,
         message: aio_pika.IncomingMessage
     ) -> None:
+        """
+        Processa uma mensagem dead-letter.
+        """
+
+        parent_context = extract_trace_context(message.headers)   
             
         async with message.process(requeue = False):
             
             with tracer.start_as_current_span(
                 f"dlq.process {self._queue_name}",
+                context = parent_context,
                 kind = SpanKind.CONSUMER
             ) as span:
+
+                start = time.perf_counter()
 
                 try:
                     dlq_message = self._extract_dlq_message(message)
@@ -67,8 +88,9 @@ class DlqConsumer:
                     span.set_attribute("dlq.routing_key", dlq_message.routing_key or "unknown")
                     span.set_attribute("dlq.death_reason", dlq_message.death_reason)
                     span.set_attribute("dlq.death_count", dlq_message.death_count)
+                    span.set_attribute("dlq.first_death_at", str(dlq_message.first_death))
 
-                    # DLQ é sempre um cenário de erro por definição
+                    # DLQ é sempre um cenário de falha por definição
                     span.set_status(Status(
                         StatusCode.ERROR,
                         f"dead letter: {dlq_message.death_reason} from {dlq_message.source_queue}",
@@ -103,8 +125,25 @@ class DlqConsumer:
                     )
 
                     await self.on_dead_letter_received(dlq_message)
-                    
+
+                    elapsed = time.perf_counter() - start
+
+                    fraud_metrics.dlq_processing_duration.record(
+                        elapsed,
+                        {
+                            "queue": self._queue_name,
+                            "death_reason": dlq_message.death_reason
+                        }
+                    )
+
+                    logger.info(
+                        "DLQ Message processed | queue=%s message_id=%s duration_ms=%.1f",
+                        self._queue_name, dlq_message.message_id, elapsed * 1000,
+                    )
+
                 except Exception as exc:
+                    elapsed = time.perf_counter() - start
+
                     span.record_exception(exc)
 
                     fraud_metrics.processing_errors_total.add(1, {"stage": "dlq"})

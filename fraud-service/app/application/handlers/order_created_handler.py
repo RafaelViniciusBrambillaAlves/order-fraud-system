@@ -1,7 +1,15 @@
+"""
+Handler de negócio para o evento OrderCreated.
+ 
+Orquestra:
+  1. Análise antifraude (regras de negócio, sem I/O)
+  2. Construção das entidades de resultado
+  3. Persistência atômica no MongoDB (dentro da sessão/transação passada pelo caller)
+"""
+
 import uuid
 import time
 import logging
-from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from app.domain.entities.order import Order
@@ -33,9 +41,13 @@ async def handle_order_created(
     session
 ) -> None:
     """
-    Orquestra o fluxo completo de análise antifraude para uma order recebida:
-      1. Analisa a order com as regras de negócio
-      2. Persiste o resultado e a mensagem de outbox no MongoDB (mesma sessão / transação)
+    Orquestra o fluxo completo de análise antifraude.
+ 
+    Args:
+        event:              Evento desserializado vindo do consumer.
+        order_repository:   Repositório de pedidos (MongoDB).
+        outbox_repository:  Repositório de outbox (MongoDB).
+        session:            Sessão MongoDB com transação aberta pelo consumer.
     """
     with tracer.start_as_current_span(
         "fraud.handle_order_created",
@@ -44,12 +56,12 @@ async def handle_order_created(
 
         span.set_attribute("order.id", str(event.order_id))
         span.set_attribute("order.amount", float(event.amount))
+        span.set_attribute("event.id", event.event_id)
 
         if hasattr(event, "customer_id") and event.customer_id:
             span.set_attribute("customer.id", str(event.customer_id))
         
-        if hasattr(event, "order_id") and event.order_id:
-            span.set_attribute("messaging.order.id", str(event.order_id))
+        start = time.perf_counter()
 
         try: 
             fraud_status = _run_analysis(event, span)
@@ -77,24 +89,32 @@ async def handle_order_created(
 
             await _persist(order, outbox_message, order_repository, outbox_repository, session)
 
+            duration = time.perf_counter() - start 
+
+            span.set_attribute("handler.duration_ms", round(duration * 1000, 2))
             span.set_status(Status(StatusCode.OK))
 
             logger.info(
-                "AUDIT | order_id=%s | fraud_status=%s | amount=%s",
-                event.order_id,
-                fraud_status,
-                event.amount,
-            )
+                "Order analyse | order_id=%s fraud_status=%s amount=%s",
+                "routing_key=%s duration_ms=%.1f",
+                event.order_id, fraud_status, event.amount,
+                routing_key, duration * 1000
+            )   
         
         except Exception as exc:
             span.record_exception(exc)
             span.set_status(Status(StatusCode.ERROR, str(exc)))
             fraud_metrics.processing_errors_total.add(1, {"stage": "handler"})
+
+            logger.error(
+                "Handler order_created Failed | order_id=%s error=%s",
+                event.order_id, exc
+            )
             raise    
 
 def _run_analysis(event: OrderCreatedEvent, parent_span) -> str:
     """
-    Executa a análise de fraude e captura métricas
+    Executa a análise antifraude e registra métricas e span filho.
     """
     with tracer.start_as_current_span(
         "fraud.analyze_order",
@@ -102,22 +122,27 @@ def _run_analysis(event: OrderCreatedEvent, parent_span) -> str:
     ) as analysis_span:
 
         start = time.perf_counter()
-
         fraud_status = analyze_order(event)
-
         elapsed = time.perf_counter() - start
 
         analysis_span.set_attribute("fraud.status", str(fraud_status))
         analysis_span.set_attribute("fraud.rule", "amount_threshold")
         analysis_span.set_attribute("fraud.threshold", _FRAUD_THRESHOLD)
         analysis_span.set_attribute("fraud.score", float(event.amount))
-
         analysis_span.set_status(Status(StatusCode.OK))
 
-        fraud_metrics.analysis_duration.record(elapsed)
-        fraud_metrics.orders_analyzed_total.add(1, {"fraud_status": str(fraud_status).lower()})
-
         parent_span.set_attribute("fraud.status", str(fraud_status))
+
+        fraud_metrics.analysis_duration.record(elapsed)
+        
+        fraud_metrics.orders_analyzed_total.add(
+            1, {"fraud_status": str(fraud_status).lower()}
+        )
+
+        fraud_metrics.fraud_decisions_total.add(1, {
+            "decission": str(fraud_status).lower(),
+            "rule": "amount_threshould"
+        })
 
         return  fraud_status
     
@@ -129,7 +154,8 @@ async def _persist(
     session
 ) -> None:
     """
-    Persiste order e outbox_message no MongoDB dentro da mesma sessão   
+    Persiste order + outbox_message dentro da sessão/transação MongoDB passada.
+    Ambos os documentos são inseridos atomicamente.
     """
 
     with tracer.start_as_current_span(
@@ -156,5 +182,4 @@ async def _persist(
             {"operation": "transaction_insert"}
         )
                                                 
-        db_span.set_status(Status(StatusCode.OK)
-    )
+        db_span.set_status(Status(StatusCode.OK))

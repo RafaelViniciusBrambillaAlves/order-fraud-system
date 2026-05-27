@@ -1,3 +1,20 @@
+"""
+Worker assíncrono que publica mensagens PENDING do outbox no RabbitMQ.
+ 
+Ciclo:
+  1. Busca até 50 mensagens PENDING ordenadas por created_at
+  2. Para cada mensagem: publica com confirm, marca SENT ou FAILED
+  3. Persiste o status atualizado no MongoDB
+  4. Dorme _POLLING_INTERVAL segundos e repete
+ 
+Observabilidade:
+  - Span de ciclo (outbox.relay.cycle) com batch size e resultado
+  - Span de publicação individual (outbox.relay.publish) com routing_key
+  - Histograma de duração do ciclo com tag de resultado
+  - Histograma de duração individual de publicação
+  - Contadores published/failed
+"""
+
 import asyncio 
 import time
 import logging
@@ -19,10 +36,7 @@ _POLLING_INTERVAL = 1 # segundos entre cada ciclo
 
 class OutboxRelayWorker:
     """
-    Worker Assincrono:
-        Le mensagem Peding da outbox_messages
-        Publica no RabbitMq com confirmação
-        Marca como SENT ou incrementa FAILED
+    Lê mensagens PENDING do outbox, publica no RabbitMQ e atualiza status.
     """
 
     def __init__(
@@ -37,7 +51,7 @@ class OutboxRelayWorker:
     async def run(self) -> None:
 
         logger.info(
-            "OutboxRelayWorker started. Polling every %ds.", 
+            "OutboxRelayWorker started | polling_interval=%ds.", 
             _POLLING_INTERVAL
         )
 
@@ -47,7 +61,7 @@ class OutboxRelayWorker:
                 await self._process_batch()
             
             except asyncio.CancelledError:
-                logger.info("OutboxRelayWorker cancelled.")
+                logger.info("OutboxRelayWorker cancelled")
                 raise 
 
             except aio_pika.exceptions.AMQPConnectionError as exc:
@@ -59,7 +73,7 @@ class OutboxRelayWorker:
 
             except Exception as exc:
                 logger.error(
-                    "OutboxRelayWorker cycle error: %s", 
+                    "OutboxRelayWorker cycle error | error=%s", 
                     exc, 
                     exc_info = True
                 )
@@ -106,23 +120,38 @@ class OutboxRelayWorker:
 
             cycle_span.set_attribute("outbox.batch.published", published)
             cycle_span.set_attribute("outbox.batch.failed", failed)
+            cycle_span.set_attribute("outbox.cycle.duration_ms", round(elapsed * 1000, 2))
+
+            cycle_result = (
+                "all_failed" if failed == pending_count and pending_count > 0
+                else "partial_failure" if failed > 0
+                else "success"
+            )
 
             if failed == pending_count and pending_count > 0:
-                cycle_span.set_status(Status(StatusCode.ERROR, "All messages failed to publish"))
+                cycle_span.set_status(
+                    Status(StatusCode.ERROR, "All messages failed to publish")
+                )
             
             else:
                 cycle_span.set_status(Status(StatusCode.OK))
             
+
             fraud_metrics.outbox_relay_duration.record(
                 elapsed,
-                {"published": published, "failed": failed}
+                {   
+                    "result": cycle_result,
+                    "published": published, 
+                    "failed": failed
+                }
             )
 
             logger.info(
-                "OutboxRelay cycle | published=%d failed=%d duration=%.3fs",
+                "OutboxRelay cycle | published=%d failed=%d result=%s duration=%.3fs",
                 published,
                 failed,
-                elapsed,
+                cycle_result,
+                elapsed * 1000,
             )
 
 
@@ -144,7 +173,8 @@ class OutboxRelayWorker:
             msg_span.set_attribute("outbox.message_id", str(msg.id))
 
             msg_span.set_attribute("outbox.event_type", msg.event_type)
-            msg_span.set_attribute("outbox.message_id", str(msg.id))
+
+            publish_start = time.perf_counter()
 
             try:
                 exchange = await channel.get_exchange(msg.exchange)
@@ -160,8 +190,6 @@ class OutboxRelayWorker:
                     type = msg.event_type,
                     headers = headers
                 )
-                
-                publish_start = time.perf_counter()
 
                 await exchange.publish(
                     amqp_message, 
@@ -174,12 +202,12 @@ class OutboxRelayWorker:
                     publish_elapsed,
                     {
                         "exchange": msg.exchange,
-                        "routing_key": msg.routing_key
+                        "routing_key": msg.routing_key,
+                        "result": "success"
                     }
                 )
 
                 msg.mark_as_sent()
-
                 msg_span.set_status(Status(StatusCode.OK))
 
                 fraud_metrics.outbox_messages_published_total.add(1, {
@@ -187,31 +215,44 @@ class OutboxRelayWorker:
                 })
 
                 logger.info(
-                    "Outbox sent | id=%s event=%s routing_key=%s",
+                    "Outbox sent | id=%s event=%s routing_key=%s duration_ms=%.1f",
                     msg.id, 
                     msg.event_type, 
                     msg.routing_key,
+                    publish_elapsed * 1000
                 )
 
             except Exception as exc:
+
+                publish_elapsed = time.perf_counter() - publish_start
                 
                 msg_span.record_exception(exc)
                 msg_span.set_status(Status(StatusCode.ERROR, str(exc)))
 
-                fraud_metrics.processing_errors_total.add(1, {
-                    "stage": "outbox_relay_publish"
+                fraud_metrics.publisher_duration.record(
+                    publish_elapsed,
+                    {
+                        "exchange": msg.exchange,
+                        "routing_key": msg.routing_key,
+                        "result": "error"
+                    }
+                )
+
+                fraud_metrics.processing_errors_total.add(
+                    1, {"stage": "outbox_relay_publish"
                 })
                 fraud_metrics.outbox_messages_failed_total.add(
-                    1, 
-                    {"routing_key": msg.routing_key}
+                    1, {"routing_key": msg.routing_key}
                 )
 
                 logger.error(
-                    "Outbox publish failed | id=%s attempt=%d error=%s",
-                    msg.id, 
-                    msg.retry_count + 1, 
-                    exc,
+                    "Outbox publish failed | id=%s event=%s attempt=%d", 
+                    "duration=%.1f error=%s",
+                    msg.id, msg.event_type, msg.retry_count + 1,
+                    publish_elapsed * 1000, exc,
+                    exc_info = True
                 )
+
                 msg.mark_as_failed(str(exc))
 
             finally:
