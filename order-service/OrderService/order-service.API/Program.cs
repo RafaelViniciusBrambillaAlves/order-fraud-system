@@ -3,7 +3,6 @@ using order_service.Infrastructure;
 using order_service.Infrastructure.Persistence;
 using order_service.Infrastructure.Observability;
 
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Logging.Configure(options =>
@@ -41,7 +40,11 @@ builder.Services.AddSwaggerGen(options =>
 
 var app = builder.Build();
 
-Console.WriteLine(builder.Configuration.GetConnectionString("DefaultConnection"));
+var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+var connectionString = builder.Configuration.GetConnectionString("default");
+startupLogger.LogInformation(
+    "Banco de dados configurado | ConnectionString={ConnectionString}",
+    connectionString);
 
 await app.Services.ApplyMigrationsAsync();
 
@@ -56,7 +59,6 @@ app.UseSwaggerUI(c =>
 // app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
-
 app.MapHealthChecks("/health");
 
 app.Run();

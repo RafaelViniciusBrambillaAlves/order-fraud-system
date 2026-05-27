@@ -87,20 +87,24 @@ public class OrderService : IOrderService
 
             sw.Stop();
 
+            activity?.SetTag("order.status", order.Status.ToString());
             activity?.SetStatus(ActivityStatusCode.Ok);
 
             // Métrica de latência de persistência
             ApplicationTelemetry.OrderPersistenceDuration.Record(
                 sw.Elapsed.TotalSeconds,
-                new KeyValuePair<string, object?>("result", "sucess"));
+                new KeyValuePair<string, object?>("result", "success"));
 
             // Contador de pedidos criados
             ApplicationTelemetry.OrdersCreated.Add(1,
                 new KeyValuePair<string, object?>("amount.range", GetAmountRange(input.Amount)));
 
             _logger.LogInformation(
-                "Order {OrderId} created successfully. Amount={Amount}",
-                order.Id, order.Amount);    
+                "Order created successfully | OrderId={OrderId} Amount={Amount}" +
+                "AmountRange={AmountRange} DurationMs={DurationMs:F1}",
+                order.Id, order.Amount,
+                GetAmountRange(input.Amount),
+                sw.Elapsed.TotalMilliseconds);    
         
             return OrderViewModel.FromEntity(order);    
         }  
@@ -120,7 +124,9 @@ public class OrderService : IOrderService
                 new KeyValuePair<string, object?>("result", "error"));
 
 
-            _logger.LogError(ex, "Failed to create order");
+            _logger.LogError(ex, 
+                "Failed to create order | Amount={Amount} DurationMs={DurationMs:F1}", 
+                input.Amount, sw.Elapsed.TotalMilliseconds);
 
             throw;
         }
@@ -144,6 +150,10 @@ public class OrderService : IOrderService
             var order = await _orderRepository.GetByIdAsync(id, cancellationToken);
 
             activiy?.SetTag("order.found", order is not null);
+
+            if (order is not null)
+                activiy?.SetTag("order.status", order.Status.ToString());
+
             activiy?.SetStatus(ActivityStatusCode.Ok);
 
             return order is null ? null: OrderViewModel.FromEntity(order);
@@ -153,10 +163,13 @@ public class OrderService : IOrderService
             activiy?.SetStatus(ActivityStatusCode.Error, ex.Message);
             activiy?.RecordException(ex);
 
+            ApplicationTelemetry.OperationErrors.Add(1, 
+                new KeyValuePair<string, object?>("operation", "order.get"));
+            
+            _logger.LogError(ex, "Failed to get id | OrderId={OrderId}", id);
+
             throw;
         }
-
-        
     }
 
     public async Task<IEnumerable<OrderViewModel>> GetAllAsync(
@@ -185,6 +198,10 @@ public class OrderService : IOrderService
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             activity?.RecordException(ex);
 
+            ApplicationTelemetry.OperationErrors.Add(1, 
+                new KeyValuePair<string, object?>("operation", "order.list"));
+
+            _logger.LogError(ex, "Failed to get all orders");
             throw;
         }
     }

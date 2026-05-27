@@ -6,9 +6,14 @@ using order_service.Application.Publishers;
 using order_service.Domain.Repositories;
 using order_service.Application.Observability;
 using OpenTelemetry.Trace;
+using System.Reflection.PortableExecutable;
 
 namespace order_service.Infrastructure.Messaging;
 
+/// <summary>
+/// Worker que lê mensagens PENDING do outbox, publica no RabbitMQ e atualiza o status.
+/// Span producer carrega o trace context para o consumer via InjectTraceContext().
+/// </summary>
 public sealed class OutboxRelayWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -119,14 +124,14 @@ public sealed class OutboxRelayWorker : BackgroundService
                 await outboxRepository.SaveChangesAsync(cancellationToken);
 
                 msgActivity?.SetStatus(ActivityStatusCode.Ok);
-
                 published++;
+
                 ApplicationTelemetry.OutboxMessagesPublished.Add(1,
                     new KeyValuePair<string, object?>("routing_key", message.RoutingKey));
 
                 _logger.LogInformation(
-                    "Outbox message published | MessageId={MessageId} Exchange={Exchange} RoutingKey={RoutingKey}",
-                    message.Id, message.Exchange, message.RoutingKey);
+                    "Outbox message published | MessageId={MessageId} Exchange={Exchange} RoutingKey={RoutingKey} EventType={EventType}",
+                    message.Id, message.Exchange, message.RoutingKey, message.EventType);
                 
             }
             catch (Exception ex)
@@ -147,22 +152,35 @@ public sealed class OutboxRelayWorker : BackgroundService
             }
         }
 
-        sw.Stop();
-
         await outboxRepository.SaveChangesAsync(cancellationToken);
+
+        sw.Stop();
 
         cycleActivity?.SetTag("outbox.batch.published", published);
         cycleActivity?.SetTag("outbox.batch.failed", failed);
+        cycleActivity?.SetTag("outbox.cycle.duration_ms", sw.Elapsed.TotalMilliseconds);
+
+        var cycleResult = failed == pending.Count() ? "all_failed"
+                        : failed > 0                ? "partial_failure"
+                                                    : "success";
+         
 
         if (failed > 0)
-        {
-            cycleActivity?.SetStatus(ActivityStatusCode.Error, "All messages in batch failed");
-        }
-        else
-        {
-            cycleActivity?.SetStatus(ActivityStatusCode.Ok);
-        }
+            cycleActivity?.SetStatus(ActivityStatusCode.Error, $"{failed}/{pending.Count()} messages in batch failed");
 
-        ApplicationTelemetry.OutboxRelayDuration.Record(sw.Elapsed.TotalSeconds);
+        else
+            cycleActivity?.SetStatus(ActivityStatusCode.Ok);
+
+
+        ApplicationTelemetry.OutboxRelayDuration.Record(
+            sw.Elapsed.TotalSeconds,
+            new KeyValuePair<string, object?>("result", cycleResult),
+            new KeyValuePair<string, object?>("published", published),
+            new KeyValuePair<string, object?>("failed", failed));
+
+        _logger.LogInformation(
+            "OutboxRelay ciclo | Published={Published} Failed={Failed} " +
+            "DurationMs={DurationMs:F1}",
+            published, failed, sw.Elapsed.TotalMilliseconds);
     }
 }

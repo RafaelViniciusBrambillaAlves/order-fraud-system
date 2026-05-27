@@ -18,13 +18,16 @@ using OpenTelemetry.Trace;
 
 namespace order_service.Infrastructure.Messaging;
 
-/// Worker que consome uma Dead Letter Queue.
+/// <summary>
+/// Consome uma Dead Letter Queue, extrai os headers x-death injetados pelo RabbitMQ,
+/// emite um log estruturado de nível Error para cada mensagem e envia ACK.
 ///
-///   Conectar na DLQ configurada via DlqWorkerOptions.
-///   Extrair e logar os headers x-death injetados pelo RabbitMQ
-///     (fila de origem, motivo, contagem de mortes, timestamps).
-///   Emitir um log estruturado de nível Error para cada mensagem   
-///   Enviar ACK após o log para remover a mensagem da DLQ
+/// Span de observabilidade:
+///   - Cada mensagem DLQ recebe um span com kind=Consumer.
+///   - O span é marcado como Error porque DLQ é por definição um cenário de falha.
+///   - Exceções no próprio processamento (ex: falha ao parsear headers) são registradas
+///     como RecordException separado do erro de negócio da mensagem.
+/// </summary>
 public class DlqWorker : BackgroundService, IDisposable
 {
     private IConnection? _connection;
@@ -120,10 +123,11 @@ public class DlqWorker : BackgroundService, IDisposable
         consumer.Received += async (_, eventArgs) =>
         {
             var deliveryTag = eventArgs.DeliveryTag;
+            var sw = Stopwatch.StartNew();
 
             using var activity = ApplicationTelemetry.ActivitySource.StartActivity(
-            $"dlq.process {_options.Queue}",
-            ActivityKind.Consumer);
+                $"dlq.process {_options.Queue}",
+                ActivityKind.Consumer);
 
             try
             {
@@ -138,10 +142,11 @@ public class DlqWorker : BackgroundService, IDisposable
                 activity?.SetTag("dlq.routing_key", dlqMessage.RoutingKey);
                 activity?.SetTag("dlq.death_reason", dlqMessage.DeathReason);
                 activity?.SetTag("dlq.death_count", dlqMessage.DeathCount);
+                activity?.SetTag("dlq.first_death_at", dlqMessage.FirstDeathAt.ToString("0"));
 
                 // DLQ
                 activity?.SetStatus(ActivityStatusCode.Error,
-                $"Dead letter: {dlqMessage.DeathReason} from {dlqMessage.SourceQueue}");
+                    $"Dead letter: {dlqMessage.DeathReason} from {dlqMessage.SourceQueue}");
 
                 // Métrica com tags para segmentar por tipo de falha
                 ApplicationTelemetry.DlqMessagesReceived.Add(1,
@@ -150,7 +155,7 @@ public class DlqWorker : BackgroundService, IDisposable
                     new KeyValuePair<string, object?>("event_type", dlqMessage.EventType));
 
                 _logger.LogError(
-                     "Dead letter message received | " +
+                    "Dead letter message received | " +
                     "Queue={Queue} " +
                     "MessageId={MessageId} " +
                     "EventType={EventType} " +
@@ -174,9 +179,16 @@ public class DlqWorker : BackgroundService, IDisposable
                 await OnDeadLetterReceivedAsync(dlqMessage);
 
                 _channel.BasicAck(deliveryTag, multiple: false);
+
+                ApplicationTelemetry.DlqProcessingDuration.Record(
+                    sw.Elapsed.TotalMilliseconds,
+                    new KeyValuePair<string, object?>("queue", _options.Queue),
+                    new KeyValuePair<string, object?>("death_reason", dlqMessage.DeathReason));
             }
             catch (Exception ex)
             {
+                sw.Stop();
+
                 activity?.RecordException(ex);
 
                 ApplicationTelemetry.OperationErrors.Add(1,

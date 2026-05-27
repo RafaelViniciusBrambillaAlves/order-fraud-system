@@ -11,13 +11,15 @@ using System.Linq.Expressions;
 namespace order_service.Application.Handlers;
 
 
+/// <summary>
 /// Processa o evento OrderAnalyzedEvent publicado pelo fraud-service.
 ///
 /// Inbox Pattern:
-///   1. Verifica se o EventId já foi processado (idempotência).
-///   2. Executa a lógica de negócio.
-///   3. Persiste o InboxMessage e salva tudo na mesma transação
-///      — se qualquer passo falhar, nada é commitado.
+///   1. Verifica se o EventId já foi processado (idempotência via InboxMessage).
+///   2. Executa a lógica de negócio (atualiza status do pedido).
+///   3. Persiste InboxMessage + Order na mesma transação EF Core.
+///      Se qualquer etapa falhar, nenhuma alteração é commitada.
+/// </summary>  
 public sealed class OrderAnalyzedEventHandler
 {
     private readonly IOrderRepository _orderRepository;
@@ -76,7 +78,6 @@ public sealed class OrderAnalyzedEventHandler
                 @event.OrderId, @event.FraudStatus
             );
 
-
             // Busca do pedido    
             var order = await _orderRepository.GetByIdAsync(@event.OrderId, cancellationToken);
 
@@ -87,13 +88,17 @@ public sealed class OrderAnalyzedEventHandler
                     @event.OrderId
                 );
 
+                activity?.SetTag("order.found", false);
                 activity?.SetStatus(ActivityStatusCode.Ok);
                 return;
             }
 
+            activity?.SetTag("order.found", true);
+            activity?.SetTag("order.current_status", order.Status.ToString());
+
             if (order.Status == OrderStatus.TIMED_OUT)
             {
-                activity?.SetTag("hanlder.late_response", true);
+                activity?.SetTag("handler.late_response", true);
                 activity?.SetStatus(ActivityStatusCode.Ok);
 
                 _logger.LogWarning(
@@ -107,8 +112,8 @@ public sealed class OrderAnalyzedEventHandler
             if (string.IsNullOrWhiteSpace(@event.FraudStatus))
             {
                 _logger.LogWarning(
-                "FraudStatus is null or empty | OrderId={OrderId}",
-                @event.OrderId);
+                    "FraudStatus is null or empty | OrderId={OrderId} EventId={EventId}",
+                    @event.OrderId, eventId);
 
                 activity?.SetStatus(ActivityStatusCode.Ok);
                 return;
@@ -137,9 +142,8 @@ public sealed class OrderAnalyzedEventHandler
             sw.Stop();
 
             activity?.SetTag("order.new_status", newStatus.ToString());
-            activity?.SetTag("handler.duration.seconds", sw.Elapsed.TotalSeconds); 
-            activity?.SetTag("handler.duplicate", false);
-
+            activity?.SetTag("handler.duration_ms", sw.Elapsed.TotalMilliseconds); 
+            activity?.SetTag("handler.outcome", "processed");
             activity?.SetStatus(ActivityStatusCode.Ok);
 
             if (order.SagaStartedAt.HasValue)
@@ -151,16 +155,28 @@ public sealed class OrderAnalyzedEventHandler
                     new KeyValuePair<string, object?>("result", newStatus.ToString()));
 
                 activity?.SetTag("saga.duration.seconds", sagaDuration.TotalSeconds);
+
+                _logger.LogInformation(
+                    "Saga concluída | OrderId={OrderId} NewStatus={NewStatus} " +
+                    "EventId={EventId} SagaDurationSeconds={SagaDurationSeconds:F2} " +
+                    "HandlerDurationMs={HandlerDurationMs:F1}",
+                    order.Id, newStatus, eventId,
+                    sagaDuration.TotalSeconds,
+                    sw.Elapsed.TotalMilliseconds);
+            }
+            else
+            {
+                _logger.LogInformation(
+                    "Status do pedido atualizado | OrderId={OrderId} NewStatus={NewStatus} " +
+                    "EventId={EventId} HandlerDurationMs={HandlerDurationMs:F1}",
+                    order.Id, newStatus, eventId,
+                    sw.Elapsed.TotalMilliseconds);
             }
 
             ApplicationTelemetry.OrdersFinalized.Add(1,
                 new KeyValuePair<string, object?>(
                     "status",
                     newStatus.ToString()));
-
-            _logger.LogInformation(
-                "Order status updated | OrderId={OrderId} NewStatus={NewStatus} EventId={EventId}",
-                order.Id, newStatus, eventId);
 
         }
         catch (Exception ex)
@@ -175,9 +191,10 @@ public sealed class OrderAnalyzedEventHandler
 
             _logger.LogError(ex,
                 "Failed processing OrderAnalyzedEvent | " +
-                "OrderId={OrderId} EventId={EventId}",
+                "OrderId={OrderId} EventId={EventId} DurationMs={DurationMs:F1}",
                 @event.OrderId,
-                eventId);
+                eventId,
+                sw.Elapsed.TotalMilliseconds);
 
             throw;
         }

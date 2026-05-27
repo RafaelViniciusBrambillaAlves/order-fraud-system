@@ -50,14 +50,13 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
     {
         _settings = options.Value;
         _logger = logger;
-
-        // Connect();
     }
 
     // Conexão
     private void Connect()
     {   
         lock (_lock){
+
             DisposeConnection();
 
             RetryPipeline.Execute(() =>
@@ -79,9 +78,7 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
                 };
 
                 _connection = factory.CreateConnection("order-servce-publish");
-
                 _channel = _connection.CreateModel();
-
                 _channel.ConfirmSelect();
 
                 _logger.LogInformation("RabbitMQ publisher connected.");
@@ -142,12 +139,13 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         activity?.SetTag("messaging.rabbitmq.routing_key", routingKey);
         activity?.SetTag("messaging.operation", "publish" );
         activity?.SetTag("messaging.event_type", eventType);
+        activity?.SetTag("messaging.message.body.size", body.Length);
 
         var connected  = EnsureChannelIsOpen();
         
         if (!connected || _channel is null)
         {
-            var conErr = "RabbitMQ channel unavailable — message not published";
+            const string conErr = "RabbitMQ channel unavailable — message not published";
 
             activity?.SetStatus(ActivityStatusCode.Error, conErr);
 
@@ -158,6 +156,8 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
             throw new InvalidOperationException(conErr);
         }
 
+        var sw = Stopwatch.StartNew();
+
         lock (_lock)
         {
             var properties = _channel!.CreateBasicProperties();
@@ -165,11 +165,10 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
             properties.ContentType = "application/json";
             properties.DeliveryMode = 2;
             properties.MessageId = Guid.NewGuid().ToString();
-            properties.Timestamp = 
-                new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-
+            properties.Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds());
             properties.Type = eventType;
-            properties.AppId = "order-service";
+            properties.AppId = ApplicationTelemetry.ServiceName;
+
             // OTEL: injeta
             // Conecta o trace do publisher com o consumer, mesmo que
             // a mensagem fique na fila por horas antes de ser consumida.
@@ -186,8 +185,7 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
                     basicProperties: properties,
                     body: body);
                 
-                var confirmed = 
-                    _channel.WaitForConfirms(TimeSpan.FromSeconds(5));
+                var confirmed = _channel.WaitForConfirms(TimeSpan.FromSeconds(5));
 
                 if (!confirmed)
                 {
@@ -196,15 +194,27 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
                         $"Broker did not confirm message. Exchange={exchange} RoutingKey={routingKey}");
                 }
 
+                sw.Stop();
+
                 activity?.SetTag("messaging.confirmed", true);
                 activity?.SetStatus(ActivityStatusCode.Ok);
 
+                // Histograma de latencia de publicacao
+                ApplicationTelemetry.PublisherDuration.Record(
+                    sw.Elapsed.TotalSeconds,
+                    new KeyValuePair<string, object?>("exchange", exchange),
+                    new KeyValuePair<string, object?>("routing_key", routingKey),
+                    new KeyValuePair<string, object?>("result", "success"));
+
 
                 _logger.LogInformation(
-                     "Published | Exchange={Exchange} RoutingKey={RoutingKey} Type={Type}",
+                    "Published Message | Exchange={Exchange} RoutingKey={RoutingKey} EventType={eventType}" + 
+                    "MessageId={MessageId} DurationMs={DurationMs:F1}",
                     exchange,
                     routingKey,
-                    eventType);
+                    eventType, 
+                    properties.MessageId,
+                    sw.Elapsed.TotalMilliseconds);
 
             }
             catch (Exception ex)
@@ -213,14 +223,23 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
                 activity?.RecordException(ex);
 
                 ApplicationTelemetry.OperationErrors.Add(1, 
-                new KeyValuePair<string, object?>("operation", "publish"),
-                new KeyValuePair<string, object?>("exchange", exchange));
+                    new KeyValuePair<string, object?>("operation", "publish"),
+                    new KeyValuePair<string, object?>("exchange", exchange));
 
-                _logger.LogInformation(
+                ApplicationTelemetry.PublisherDuration.Record(
+                    sw.Elapsed.TotalSeconds,
+                    new KeyValuePair<string, object?>("exchange", exchange),
+                    new KeyValuePair<string, object?>("routing_key", routingKey),
+                    new KeyValuePair<string, object?>("result", "error"));
+
+                _logger.LogError(
                     ex,
-                    "Error publishing message | Exchange={Exchange} RoutingKey={RoutingKey}",
+                    "Error publishing message | Exchange={Exchange} RoutingKey={RoutingKey}" + 
+                    "EventType={EventType} DurationMs={DurationMs:F1}",
                     exchange,
-                    routingKey);
+                    routingKey, 
+                    eventType,
+                    sw.Elapsed.TotalMilliseconds);
 
                 throw;
             }
@@ -286,8 +305,5 @@ public sealed class RabbitMqPublisher : IEventPublisher, IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        DisposeConnection();
-    }
+    public void Dispose() => DisposeConnection();
 }

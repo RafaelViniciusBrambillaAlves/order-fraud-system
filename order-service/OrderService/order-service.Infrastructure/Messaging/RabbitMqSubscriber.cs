@@ -9,16 +9,13 @@ using RabbitMQ.Client.Events;
 using RabbitMQ.Client.Exceptions;
 using OpenTelemetry.Trace;
 
-/// Subscriber responsável por:
-/// Conectar no RabbitMQ
-/// Escutar filas
-/// Receber mensagens
-/// Executar o processamento
-/// Enviar ACK/NACK (confirma o recebimento (ACK - Acknowledgement) ou relata um erro/falha (NACK - Negative Acknowledgement))
-/// Recriar conexão caso o canal caia
-
 namespace order_service.Infrastructure.Messaging;
 
+
+/// <summary>
+/// Subscriber responsável por conectar no RabbitMQ, escutar filas e despachar mensagens.
+/// Garante ACK/NACK e recria a conexão se o canal cair.
+/// </summary>
 public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
 {
     private IConnection? _connection;
@@ -48,7 +45,6 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
     {
         _settings = options.Value;
         _logger = logger;
-        // Connect();
     }
 
     // Cria conexão e canal com RabbitMQ
@@ -72,8 +68,7 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
                 DispatchConsumersAsync = true
             };
 
-            _connection = factory.CreateConnection("order-service-subscriber");
-
+            _connection = factory.CreateConnection("order-service-subscriber"); 
             // Cria canal de comunicação
             _channel = _connection.CreateModel();
 
@@ -126,6 +121,7 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
             activity?.SetTag("messaging.destination", queue);
             activity?.SetTag("messaging.operation", "receive");
             activity?.SetTag("messaging.rabbitmq.routing_key", eventArgs.RoutingKey);
+            activity?.SetTag("messaging.message.body.size", eventArgs.Body.Length); 
             
             // Extrai metadados do header
             // MessageId é setado pelo RabbitMqPublisher em cada mensagem publicada.
@@ -173,11 +169,11 @@ public sealed class RabbitMqSubscriber : IEventSubscriber, IDisposable
                     new KeyValuePair<string, object?>("operation", "rabbitmq.consume"),
                     new KeyValuePair<string, object?>("queue", queue));
 
-                _logger.LogDebug(ex,
+                _logger.LogError(ex,
                     "Error processing message | Queue={Queue} DeliveryTag={Tag}. Sending NACK -> DLQ.",
                     queue, deliveryTag);
 
-                // NACK sem requeue
+                // NACK sem requeue 
                 // Mensagem vai para Dead Letter Queue
                 _channel!.BasicNack(deliveryTag, multiple: false, requeue: false);
             }

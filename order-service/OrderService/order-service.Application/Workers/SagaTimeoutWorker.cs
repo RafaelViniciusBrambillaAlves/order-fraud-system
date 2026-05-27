@@ -10,24 +10,16 @@ using OpenTelemetry.Trace;
 
 namespace order_service.Application.Workers;
 
-/// Worker responsável por detectar e encerrar Sagas que excederam o timeout.
+/// <summary>
+/// Detecta e encerra Sagas que excederam o timeout de análise antifraude.
 ///
-/// Problema que resolve:
-///   O order-service publica um OrderCreatedEvent e aguarda um
-///   OrderAnalyzedEvent do fraud-service. Se o fraud-service cair,
-///   travar ou nunca responder, o pedido fica PENDING para sempre.
-///   Este worker varre o banco periodicamente e expira esses pedidos.
+/// A cada CheckInterval varre pedidos com:
+///   Status = PENDING_FRAUD_CHECK
+///   SagaStartedAt &lt;= UtcNow - FraudAnalysisTimeout
 ///
-/// Estratégia:
-///   A cada CheckInterval, busca pedidos com:
-///     Status = PENDING
-///     SagaStartedAt <= UtcNow - FraudAnalysisTimeout
-///   Para cada um, chama order.MarkAsTimedOut() e persiste.
-///
-/// Idempotência:
-///   MarkAsTimedOut() lança InvalidOperationException se o status
-///   não for PENDING - pedidos já aprovados/rejeitados/expirados são
-///   ignorados silenciosamente.
+/// Idempotência: MarkAsTimedOut() lança InvalidOperationException se o status
+/// não for PENDING — pedidos já aprovados/rejeitados/expirados são ignorados.
+/// </summary>
 public sealed class SagaTimeoutWorker : BackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
@@ -72,12 +64,11 @@ public sealed class SagaTimeoutWorker : BackgroundService
             "saga.timeout.check", 
             ActivityKind.Internal);
 
-        var sw = Stopwatch.StartNew();
+        var sw = Stopwatch.StartNew();  
 
         await using var scope = _scopeFactory.CreateAsyncScope();
 
-        var orderRepository = scope.ServiceProvider
-            .GetRequiredService<IOrderRepository>();
+        var orderRepository = scope.ServiceProvider.GetRequiredService<IOrderRepository>();
         
         try
         {
@@ -91,6 +82,12 @@ public sealed class SagaTimeoutWorker : BackgroundService
                     "SagaTimeoutWorker: no timed-out orders found.");
 
                 activity?.SetStatus(ActivityStatusCode.Ok);
+                
+                ApplicationTelemetry.SagaTimeoutCheckDuration.Record(
+                    sw.Elapsed.TotalSeconds,
+                    new KeyValuePair<string, object?>("canceleed", 0),
+                    new KeyValuePair<string, object?>("result", "no_work"));    
+
                 return;
             }
 
@@ -118,9 +115,11 @@ public sealed class SagaTimeoutWorker : BackgroundService
                     count++; 
 
                     ApplicationTelemetry.SagaTimeouts.Add(1,
-                    new KeyValuePair<string, object?>("reason", "timeout"));
+                        new KeyValuePair<string, object?>("reason", "timeout"));
 
                     await orderRepository.SaveChangesAsync(cancellationToken);
+
+                    orderActivity?.SetStatus(ActivityStatusCode.Ok);
 
                     _logger.LogWarning(
                         "Order saga timed out | " +
@@ -144,21 +143,27 @@ public sealed class SagaTimeoutWorker : BackgroundService
                     orderActivity?.SetStatus(ActivityStatusCode.Error, ex.Message);
                     orderActivity?.RecordException(ex);
 
+                    ApplicationTelemetry.OperationErrors.Add(1,
+                        new KeyValuePair<string, object?>("operation", "saga.timeout.cancel"));
+
                     _logger.LogError(ex,
                         "Failed to expire order | OrderId={OrderId}",
                         order.Id);
                 }
-
-                sw.Stop();
-
-                activity?.SetTag("saga.timeout.cancelled_count", count);
-                activity?.SetStatus(ActivityStatusCode.Ok);
-
-                ApplicationTelemetry.SagaTimeoutCheckDuration.Record(
-                    sw.Elapsed.TotalSeconds,
-                    new KeyValuePair<string, object?>("cancelled", count));
-
             }
+            sw.Stop();
+
+            activity?.SetTag("saga.timeout.cancelled_count", count);
+            activity?.SetStatus(ActivityStatusCode.Ok);
+
+            ApplicationTelemetry.SagaTimeoutCheckDuration.Record(
+                sw.Elapsed.TotalSeconds,
+                new KeyValuePair<string, object?>("cancelled", count),
+                new KeyValuePair<string, object?>("result", "processed"));
+
+            _logger.LogInformation(
+                "SagaTimeoutWorker cycle completed | Cancelled={Count} DurationMs={DurationMs:F1}",
+                count, sw.Elapsed.TotalMilliseconds);
         }
         catch (Exception ex)
         {
@@ -169,6 +174,10 @@ public sealed class SagaTimeoutWorker : BackgroundService
 
             ApplicationTelemetry.OperationErrors.Add(1,
                 new KeyValuePair<string, object?>("operation", "saga.timeout.check"));
+
+            _logger.LogError(ex,
+                "Saga timeout cycle failure | DurationMs={DurationMs:F1}",
+                sw.Elapsed.TotalMilliseconds);
 
             throw;
         }
