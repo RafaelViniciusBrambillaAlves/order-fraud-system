@@ -13,7 +13,7 @@ using OpenTelemetry.Trace;
 
 namespace order_service.Application.Services;
 
-public class OrderService : IOrderService
+internal class OrderService : IOrderService
 {
     private readonly IOrderRepository _orderRepository;
     private readonly IOutboxRepository  _outboxRepository;
