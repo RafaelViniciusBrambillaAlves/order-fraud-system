@@ -66,6 +66,7 @@
 23. [Testes de Resiliência](#-testes-de-resiliência)
 24. [Melhorias Implementadas](#-melhorias-implementadas)
 25. [Conceitos Aplicados](#-conceitos-aplicados)
+27. [Referências e Materiais de Estudo](#-referências-e-materiais-de-estudo)
 26. [Conclusão](#-conclusão)
 
 ---
@@ -555,7 +556,7 @@ Por isso o Outbox Pattern é fundamental: se o RabbitMQ cair, o pedido ainda é 
 
 ## 📦 Transactional Outbox Pattern
 
-![Outbox Pattern](img/outbox-domain.png)
+![Outbox Pattern](img\relay-strategy.png)
 
 ### O problema: Dual-Write
 
@@ -603,8 +604,6 @@ Se o commit falhar, as duas gravações são revertidas. Se ele tiver sucesso, a
 |---|---|---|---|---|
 | **Polling** (implementado aqui) | Worker consulta o banco em intervalos | ~500ms | Baixa | Dev/carga moderada |
 | **CDC via Debezium** | Lê o WAL em tempo real | ~10ms | Alta | Produção em alta escala |
-
-![Outbox Pattern](img\relay-strategy.png)
 
 ### Resultados de resiliência
 
@@ -1163,6 +1162,32 @@ Latência observada: ~200ms fim a fim.
 
 ---
 
+## 🔗 Referências e Materiais de Estudo
+
+Este projeto foi desenvolvido com base em estudos, documentações oficiais, artigos e conteúdos da comunidade sobre arquitetura distribuída, microsserviços, observabilidade e padrões de integração.
+
+### 📚 Materiais
+
+- https://www.youtube.com/watch?v=Q5qZVWTQQOE
+- https://www.youtube.com/watch?v=YNvH3QfG_UE&list=PLI2XdbZhEq4l-nnF4bfzsUBnnZXTtcV1D
+- https://www.youtube.com/watch?v=0V7Lct-KfwI
+- https://www.youtube.com/watch?v=9Nic_EhRCyo&t=1183s
+- https://www.youtube.com/watch?v=ooJjxNsQnK4
+- https://www.youtube.com/watch?v=JXeJUfBCg4U
+- https://www.youtube.com/watch?v=8xFBQc1A4B8
+- https://github.com/kgrzybek/modular-monolith-with-ddd
+ 
+
+### 🤖 Ferramentas Utilizadas Durante o Desenvolvimento
+
+- Claude AI  
+  https://claude.ai/new
+
+- ChatGPT  
+  https://chatgpt.com/
+
+---
+
 ## 🏁 Conclusão
 
 Este projeto demonstra que construir sistemas distribuídos confiáveis exige muito mais do que escrever código que funciona. Os desafios reais aparecem nos espaços entre serviços: mensagens em trânsito, coordenação de transações entre fronteiras, recuperação de falhas parciais e entendimento do que acontece em processos e bancos diferentes.
@@ -1181,6 +1206,9 @@ O sistema é um estudo prático do que "production-grade" significa no nível de
 
 ---
 
+> Os materiais acima foram utilizados como apoio para estudo, validação de conceitos e implementação das soluções apresentadas neste projeto
+
+---
 <div align="center">
 
 📬 Contato
