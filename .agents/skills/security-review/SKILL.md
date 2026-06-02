@@ -1,87 +1,151 @@
 ---
 name: security-review
 description: >
-  Use esta skill para revisar código, configurações, infraestrutura e
-  observabilidade em busca de vulnerabilidades de segurança.
-  Ativa quando o usuário pede para "revisar segurança",
-  "security review", "analisar vulnerabilidades",
-  "encontrar riscos", "hardening", "secure code review",
-  "tem algo inseguro aqui?" ou antes de merge em produção.
+  Use esta skill para revisar código, configurações,
+  infraestrutura e observabilidade em busca de riscos
+  de segurança e más práticas.
+
+  Este projeto é um projeto pessoal/portfólio executado
+  principalmente em ambiente local com Docker Compose.
+
+  A revisão deve diferenciar claramente:
+  - Vulnerabilidades reais
+  - Melhorias recomendadas para produção
+  - Decisões aceitáveis para ambiente local
 ---
 
 # Skill: Security Review
 
-Objetivo:
-Identificar riscos de segurança antes que cheguem à produção.
+## Objetivo
 
-A revisão deve seguir as camadas abaixo, da mais crítica para a menos crítica.
+Realizar uma revisão de segurança pragmática e orientada a risco.
 
-Nunca assumir que um sistema é seguro apenas porque funciona.
+O foco é encontrar:
 
----
+- vulnerabilidades reais
+- exposição de segredos
+- falhas de autenticação
+- riscos de injeção
+- vazamento de dados
+- configurações inseguras
 
-# Camada 1 — Segredos e Credenciais (CRÍTICO)
-
-Verificar:
-
-## Arquivos de configuração
-
-- [ ] Nenhuma senha está hardcoded.
-- [ ] Nenhuma connection string contém credenciais reais.
-- [ ] Nenhuma chave JWT está commitada.
-- [ ] Nenhuma API Key está commitada.
-- [ ] Nenhum token está em appsettings.json.
-- [ ] Nenhum token está em settings.py.
-- [ ] Nenhum segredo está em docker-compose.yml.
-
-Aceitável:
-
-```json
-{
-  "ConnectionStrings": {
-    "SqlServer": "${SQLSERVER_CONNECTION_STRING}"
-  }
-}
-```
-
-Não aceitável:
-
-```json
-{
-  "ConnectionStrings": {
-    "SqlServer": "Server=db;User Id=sa;Password=Senha123!"
-  }
-}
-```
+Sem gerar falsos positivos comuns em projetos pessoais.
 
 ---
 
-## Variáveis de ambiente
+# Contexto do Projeto
 
-Verificar:
+Antes de iniciar a revisão, assumir:
 
-- [ ] Existe `.env.example`.
-- [ ] Não existe `.env` commitado.
-- [ ] `.gitignore` ignora `.env`.
-- [ ] Credenciais são carregadas via ambiente.
+- Projeto pessoal
+- Ambiente local
+- Uso educacional
+- Docker Compose
+- Sem exposição pública conhecida
+
+Portanto:
+
+- `.env.example` com senhas fictícias é aceitável
+- Credenciais de laboratório são aceitáveis
+- Swagger aberto em ambiente local é aceitável
+- RabbitMQ Management local é aceitável
+
+Apenas reporte como problema quando:
+
+- existir risco real
+- existir segredo real exposto
+- existir algo que impediria uso seguro em produção
 
 ---
 
-# Camada 2 — APIs (.NET e FastAPI)
+# Classificação de Severidade
+
+## CRÍTICO
+
+Vulnerabilidade real.
+
+Exemplos:
+
+- segredo real commitado
+- SQL Injection
+- Mongo Injection
+- JWT inseguro
+- endpoint administrativo sem autenticação
+- credenciais vazadas em logs
+- execução remota possível
+
+Deve ser corrigido imediatamente.
+
+---
+
+## IMPORTANTE
+
+Não é vulnerabilidade imediata.
+
+Mas dificulta uso seguro em produção.
+
+Exemplos:
+
+- container executando como root
+- ausência de rate limiting
+- ausência de autenticação
+- ausência de HTTPS
+- ausência de rotação de segredos
+
+Deve entrar no backlog.
+
+---
+
+## SUGESTÃO
+
+Melhoria de hardening.
+
+Exemplos:
+
+- headers de segurança
+- CSP
+- configurações mais restritivas
+- melhorias de observabilidade
+
+Não bloqueia merge.
+
+---
+
+# Camada 1 — Segredos
 
 Verificar:
 
-## Entrada de dados
+- [ ] .env não está commitado
+- [ ] .gitignore ignora .env
+- [ ] Segredos reais não estão em código
+- [ ] Chaves JWT não estão hardcoded
+- [ ] API Keys não estão hardcoded
+- [ ] Connection strings não aparecem em logs
 
-- [ ] Inputs possuem validação.
-- [ ] Não existe trust em dados vindos do cliente.
-- [ ] IDs recebidos são validados.
-- [ ] Valores monetários são validados.
-- [ ] Enum parsing é seguro.
+Não considerar:
+
+- .env.example
+- valores de laboratório
+- exemplos fictícios
+
+como vulnerabilidade.
+
+---
+
+# Camada 2 — APIs
+
+Verificar:
+
+- [ ] validação de entrada
+- [ ] enums seguros
+- [ ] IDs validados
+- [ ] valores monetários validados
+- [ ] mass assignment inexistente
+- [ ] stacktrace não retorna ao cliente
 
 ### C#
 
-Verificar:
+Preferir:
 
 ```csharp
 [Required]
@@ -92,60 +156,11 @@ ou FluentValidation.
 
 ### Python
 
-Verificar:
+Preferir:
 
 ```python
-class CreateOrderRequest(BaseModel):
-    description: str = Field(max_length=200)
-    amount: float = Field(gt=0)
-```
-
----
-
-## Mass Assignment
-
-Verificar:
-
-- [ ] Entidades não são populadas diretamente do request.
-
-Não aceitável:
-
-```csharp
-var order = request;
-```
-
-Aceitável:
-
-```csharp
-var order = new Order(
-    request.Description,
-    request.Amount
-);
-```
-
----
-
-## Exposição de erros
-
-Verificar:
-
-- [ ] Stacktrace não retorna ao cliente.
-- [ ] Exceptions não revelam infraestrutura.
-
-Não aceitável:
-
-```json
-{
-  "error": "MongoConnectionException ..."
-}
-```
-
-Aceitável:
-
-```json
-{
-  "error": "Unexpected error."
-}
+Field(gt=0)
+Field(max_length=200)
 ```
 
 ---
@@ -156,22 +171,11 @@ Aceitável:
 
 Verificar:
 
-- [ ] Queries parametrizadas.
-- [ ] Nenhum SQL concatenado.
+- EF Core LINQ
+- parâmetros
+- consultas parametrizadas
 
-Não aceitável:
-
-```csharp
-$"SELECT * FROM Orders WHERE Id = {id}"
-```
-
-Aceitável:
-
-EF Core LINQ
-
-```csharp
-db.Orders.FirstOrDefaultAsync(x => x.Id == id);
-```
+Reportar apenas se houver concatenação de SQL.
 
 ---
 
@@ -179,25 +183,10 @@ db.Orders.FirstOrDefaultAsync(x => x.Id == id);
 
 Verificar:
 
-- [ ] Queries usam filtros tipados.
-- [ ] Nenhum JSON montado por string.
+- filtros tipados
+- queries construídas por objetos
 
-Não aceitável:
-
-```python
-db.orders.find(json.loads(user_input))
-```
-
----
-
-## Dados sensíveis
-
-Verificar:
-
-- [ ] CPF não é logado.
-- [ ] Email não é logado.
-- [ ] Cartão não é logado.
-- [ ] Telefone não é logado.
+Reportar apenas quando input do usuário controla diretamente a query.
 
 ---
 
@@ -205,69 +194,40 @@ Verificar:
 
 Verificar:
 
-## Producers
+- ACK explícito
+- NACK explícito
+- DLQ configurada
+- Inbox Pattern
+- Publisher Confirm
 
-- [ ] Publisher Confirms habilitado.
-- [ ] Eventos não carregam segredos.
-- [ ] Payload mínimo necessário.
+Reportar:
 
----
-
-## Consumers
-
-- [ ] autoAck = false
-- [ ] ACK explícito
-- [ ] NACK explícito
-- [ ] Idempotência via Inbox
+- ausência de idempotência
+- perda silenciosa de mensagens
 
 ---
 
-## Filas
+# Camada 5 — Logs, Traces e Métricas
 
 Verificar:
 
-- [ ] DLQ configurada.
-- [ ] TTL configurado quando aplicável.
-- [ ] Durable=true.
+### Logs
 
----
+- senhas
+- tokens
+- connection strings
+- JWT
 
-# Camada 5 — Autenticação e Autorização
+### Traces
 
-Verificar:
+- atributos sensíveis
 
-## JWT
+### Métricas
 
-- [ ] Chave forte.
-- [ ] Expiração configurada.
-- [ ] Algoritmo explícito.
-- [ ] Audience configurado.
-- [ ] Issuer configurado.
-
----
-
-## Roles
-
-Verificar:
-
-- [ ] Endpoints protegidos.
-- [ ] Não existe endpoint administrativo aberto.
-
-### C#
-
-```csharp
-[Authorize]
-```
-
-ou
-
-```csharp
-[Authorize(Roles="Admin")]
-```
-
-### FastAPI
-
-Verificar dependências de autenticação.
+- IDs únicos
+- emails
+- CPF
+- labels de alta cardinalidade
 
 ---
 
@@ -275,182 +235,133 @@ Verificar dependências de autenticação.
 
 Verificar:
 
-## Containers
+- container executa como root
+- imagens extremamente antigas
+- volumes excessivos
 
-- [ ] Não executam como root.
-- [ ] Possuem usuário dedicado.
-- [ ] Imagens atualizadas.
+Importante:
 
-Não aceitável:
+Em projeto local isso normalmente é:
 
-```dockerfile
-USER root
-```
+IMPORTANTE
 
-Aceitável:
+não
 
-```dockerfile
-RUN adduser appuser
-USER appuser
-```
+CRÍTICO
 
 ---
 
-## Volumes
+# Camada 7 — Dependências
 
 Verificar:
 
-- [ ] Apenas diretórios necessários são montados.
-- [ ] Não existe bind mount sensível.
-
----
-
-## Portas
-
-Verificar:
-
-- [ ] Apenas portas necessárias expostas.
-- [ ] Mongo não exposto externamente.
-- [ ] SQL Server não exposto externamente.
-- [ ] RabbitMQ management protegido.
-
----
-
-# Camada 7 — Observabilidade
-
-Verificar:
-
-## Logs
-
-- [ ] Sem credenciais.
-- [ ] Sem tokens.
-- [ ] Sem JWT.
-- [ ] Sem connection strings.
-
----
-
-## Traces
-
-Verificar:
-
-- [ ] Nenhum atributo contém senha.
-- [ ] Nenhum atributo contém token.
-- [ ] Nenhum atributo contém PII.
-
----
-
-## Métricas
-
-Verificar:
-
-- [ ] Sem labels de alta cardinalidade.
-- [ ] Sem IDs únicos.
-- [ ] Sem emails.
-
-Não aceitável:
-
-```csharp
-counter.Add(1,
-    new("user_id", userId));
-```
-
-Aceitável:
-
-```csharp
-counter.Add(1,
-    new("status", "approved"));
-```
-
----
-
-# Camada 8 — Dependências
-
-Verificar:
-
-## .NET
+### .NET
 
 ```bash
 dotnet list package --vulnerable
 ```
 
----
-
-## Python
+### Python
 
 ```bash
 pip-audit
 ```
 
-ou
-
-```bash
-safety check
-```
-
----
-
-## Docker
-
-```bash
-docker scout quickview
-```
-
-ou
+### Docker
 
 ```bash
 trivy image <image>
 ```
 
+Reportar apenas vulnerabilidades conhecidas relevantes.
+
 ---
 
-# Camada 9 — Hardening de Produção
+# Camada 8 — Produção (Somente Recomendações)
+
+Não marcar como crítico.
+
+Apenas sugerir.
 
 Verificar:
 
-- [ ] HTTPS obrigatório.
-- [ ] CORS configurado.
-- [ ] Security Headers configurados.
-- [ ] Rate Limiting configurado.
-- [ ] Healthchecks sem informações sensíveis.
-- [ ] Swagger protegido fora de Development.
-- [ ] Debug desabilitado.
+- HTTPS
+- Rate Limiting
+- Security Headers
+- CORS
+- Swagger protegido
+- Health Checks mínimos
+
+Classificação máxima:
+
+IMPORTANTE
 
 ---
 
-# Checklist de Aprovação
+# Regras Especiais
 
-Merge bloqueado se existir:
+## Não reportar
 
-- Credencial exposta
+Não considere vulnerabilidade:
+
+- .env.example
+- localhost
+- credenciais fictícias
+- swagger aberto localmente
+- rabbitmq management local
+- mongodb exposto apenas na rede docker
+
+---
+
+## Reportar
+
+Considere vulnerabilidade:
+
+- segredo real commitado
+- segredo real em log
+- senha em trace
+- token em métrica
 - SQL Injection
 - Mongo Injection
-- Endpoint administrativo aberto
-- JWT inseguro
-- Dados sensíveis em logs
-- Containers rodando como root
+- autenticação quebrada
 
 ---
 
-# Formato do Relatório
+# Formato do Resultado
 
-Para cada problema encontrado:
+Por padrão:
 
-### [CRÍTICO | IMPORTANTE | MÉDIO]
+Mostrar apenas no chat.
+
+Não criar arquivos.
+
+---
+
+Somente criar arquivo markdown quando solicitado explicitamente:
+
+Exemplos:
+
+- "gere relatório"
+- "salve relatório"
+- "crie SECURITY_REVIEW.md"
+
+---
+
+# Formato
+
+### [CRÍTICO | IMPORTANTE | SUGESTÃO]
 
 **Arquivo**
 `caminho/arquivo.cs`
 
 **Problema**
-Descrição clara do risco.
+Descrição objetiva.
 
 **Impacto**
-O que pode acontecer em produção.
+Consequência prática.
 
 **Correção**
 Como resolver.
-
-**Exemplo**
-Trecho sugerido.
 
 ---
 
@@ -458,18 +369,23 @@ Trecho sugerido.
 
 Informar:
 
-- Quantidade de problemas críticos
-- Quantidade de problemas importantes
-- Quantidade de problemas médios
-- Aprovação ou reprovação do merge
+- Críticos
+- Importantes
+- Sugestões
 
-Critérios:
+Classificação:
 
 ✅ APROVADO
-Nenhum problema crítico.
+Sem críticos.
 
 ⚠ APROVADO COM RESSALVAS
 Sem críticos, mas existem importantes.
 
 ❌ REPROVADO
-Existe ao menos um problema crítico.
+Existe ao menos um crítico.
+
+A revisão deve ser objetiva.
+
+Evitar relatórios excessivamente longos.
+
+Priorizar qualidade sobre quantidade.
