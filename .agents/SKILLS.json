@@ -1,0 +1,104 @@
+{
+  "version": "1.0",
+  "skills": [
+    {
+      "id": "adicionar-feature",
+      "name": "Adicionar Feature",
+      "description": "Implementar uma nova funcionalidade em qualquer parte do sistema order-fraud",
+      "path": ".agents/skills/adicionar-feature/SKILL.md",
+      "triggers": [
+        "implementar",
+        "adicionar",
+        "criar",
+        "nova feature",
+        "novo recurso"
+      ],
+      "services": ["order-service", "fraud-service"],
+      "technologies": ["C#", "Python", "FastAPI", ".NET"]
+    },
+    {
+      "id": "criar-migracao-ef",
+      "name": "Criar Migration EF Core",
+      "description": "Criar ou ajustar migrações EF Core no order-service",
+      "path": ".agents/skills/criar-migracao-ef/SKILL.md",
+      "triggers": [
+        "criar migration",
+        "adicionar migration EF Core",
+        "adicionar coluna no banco",
+        "alterar tabela",
+        "novo índice no SQL Server"
+      ],
+      "services": ["order-service"],
+      "technologies": ["EF Core", "SQL Server", ".NET"]
+    },
+    {
+      "id": "escrever-testes",
+      "name": "Escrever Testes",
+      "description": "Escrever testes unitários, de integração ou de contrato para qualquer parte do sistema",
+      "path": ".agents/skills/escrever-testes/SKILL.md",
+      "triggers": [
+        "testar",
+        "escrever testes",
+        "cobrir com testes",
+        "adicionar testes unitários",
+        "testes de integração",
+        "test coverage"
+      ],
+      "services": ["order-service", "fraud-service"],
+      "technologies": ["xUnit", "pytest", "C#", "Python"]
+    },
+    {
+      "id": "revisar-codigo",
+      "name": "Revisar Código",
+      "description": "Revisar código, PRs ou arquivos específicos em busca de bugs, problemas de design e oportunidades de melhoria",
+      "path": ".agents/skills/revisar-codigo/SKILL.md",
+      "triggers": [
+        "revise",
+        "code review",
+        "analise este arquivo",
+        "o que está errado",
+        "tem algum problema",
+        "buggy",
+        "design review"
+      ],
+      "services": ["order-service", "fraud-service"],
+      "technologies": ["C#", "Python"]
+    },
+    {
+      "id": "adicionar-metrica-otel",
+      "name": "Adicionar Métrica OpenTelemetry",
+      "description": "Adicionar métricas, spans ou atributos de observabilidade OpenTelemetry ao sistema",
+      "path": ".agents/skills/adicionar-metrica-otel/SKILL.md",
+      "triggers": [
+        "adicionar métrica",
+        "instrumentar",
+        "adicionar observabilidade",
+        "criar span",
+        "adicionar tracing",
+        "medir latência",
+        "contar ocorrências",
+        "dashboard Grafana"
+      ],
+      "services": ["order-service", "fraud-service"],
+      "technologies": ["OpenTelemetry", "Jaeger", "Prometheus", "Grafana"]
+    },
+    {
+      "id": "security-review",
+      "name": "Security Review",
+      "description": "Revisar código, configurações, infraestrutura e observabilidade em busca de vulnerabilidades de segurança",
+      "path": ".agents/skills/security-review/SKILL.md",
+      "triggers": [
+        "revisar segurança",
+        "security review",
+        "analisar vulnerabilidades",
+        "encontrar riscos",
+        "hardening",
+        "secure code review",
+        "tem algo inseguro",
+        "antes de produção"
+      ],
+      "services": ["order-service", "fraud-service"],
+      "technologies": ["Security", "Docker", "RabbitMQ", "Database"]
+    }
+  ]
+}
