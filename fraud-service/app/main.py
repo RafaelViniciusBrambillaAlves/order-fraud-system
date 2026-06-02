@@ -9,12 +9,18 @@ from app.api.routes.order_routes import router as order_router
 from app.observability.telemetry import setup_telemetry, instrument_app
 from app.core.settings import settings
 
+docs_url = "/docs" if settings.environment == "development" else None
+redoc_url = "/redoc" if settings.environment == "development" else None
+
 setup_telemetry(otlp_endpoint = settings.otlp_endpoint)
 
 app = FastAPI(
     title = "Fraud Service",
     lifespan = lifespan,
     root_path = "/fraud",
+    docs_url = docs_url,
+    redoc_url = redoc_url,
+    openapi_url = None if settings.environment != "development" else "/openapi.json"
 )
 
 instrument_app(app)

@@ -37,7 +37,7 @@ class JsonFormatter(logging.Formatter):
             log_entry["exception"] = self.formatException(record.exc_info)
 
         # Campos extras adicionados via logger.info("msg", extra={"order_id": ...})
-        for key, value in record.__dict__.item():
+        for key, value in record.__dict__.items():
             if key not in (
                 "args", "asctime", "created", "exc_info", "exc_text",
                 "filename", "funcName", "id", "levelname", "levelno",

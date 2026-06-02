@@ -51,7 +51,10 @@ async def lifespan(app: FastAPI):
             heartbeat = settings.rabbitmq_heartbeat
         )
 
-        logger.info("RabbitMQ Conncted | url=%s", settings.rabbitmq_url)
+        # Em startup.py
+        logger.info("RabbitMQ Connected | host=%s port=%d", 
+            settings.rabbitmq_host, settings.rabbitmq_port)
+
         fraud_metrics.rabbitmq_connection_status.add(1)
 
     except Exception:
