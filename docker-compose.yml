@@ -92,7 +92,7 @@ services:
   # MONGODB
   # =====================
   mongodb:
-    image: mongo:6
+    image: mongo:6.0.15
     command: ["bash", "/mongo-init.sh"]
     ports:
       - "27017:27017"
