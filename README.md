@@ -35,6 +35,15 @@
 ![EDA](https://img.shields.io/badge/Event_Driven-Architecture-yellow?style=for-the-badge)
 ![Async Messaging](https://img.shields.io/badge/Async-Messaging-cyan?style=for-the-badge)
 
+<br/>
+
+![Claude AI](https://img.shields.io/badge/Claude-Agents-blueviolet?style=for-the-badge&logo=openai&logoColor=white)
+![Security Review](https://img.shields.io/badge/Security-Review-red?style=for-the-badge)
+![Code Review](https://img.shields.io/badge/Code-Review-green?style=for-the-badge)
+![Testing](https://img.shields.io/badge/Auto-Testing-yellow?style=for-the-badge)
+![Observability](https://img.shields.io/badge/OTEL-Instrumentation-purple?style=for-the-badge)
+![Migrations](https://img.shields.io/badge/DB-Migrations-orange?style=for-the-badge)
+
 </div>
 
 ---
@@ -66,8 +75,9 @@
 23. [Testes de Resiliência](#-testes-de-resiliência)
 24. [Melhorias Implementadas](#-melhorias-implementadas)
 25. [Conceitos Aplicados](#-conceitos-aplicados)
+26. [AI-Powered Development com Claude Agents](#-ai-powered-development-com-claude-agents)
 27. [Referências e Materiais de Estudo](#-referências-e-materiais-de-estudo)
-26. [Conclusão](#-conclusão)
+28. [Conclusão](#-conclusão)
 
 ---
 
@@ -1162,7 +1172,350 @@ Latência observada: ~200ms fim a fim.
 
 ---
 
-## 🔗 Referências e Materiais de Estudo
+## 🤖 AI-Powered Development com Claude Agents
+
+![Claude AI](https://img.shields.io/badge/Claude-AI-blue?style=for-the-badge&logo=openai&logoColor=white)
+![Agents](https://img.shields.io/badge/Agents-Orchestration-purple?style=for-the-badge)
+![Skills](https://img.shields.io/badge/Skills-Automation-cyan?style=for-the-badge)
+![Code Review](https://img.shields.io/badge/Code-Review-green?style=for-the-badge)
+![Security](https://img.shields.io/badge/Security-Review-red?style=for-the-badge)
+
+### Introdução: A Era dos Agents de IA para Desenvolvimento
+
+Este projeto foi desenvolvido em parte utilizando **Claude/Codex Agents** — sistemas de IA especializados capazes de realizar tarefas complexas de engenharia de software de forma autônoma. Após o projeto estar funcionando em nível de produção, os agents foram utilizados para **validação de segurança, revisão de código e correções pontuais**, democratizando a qualidade e reduzindo a carga cognitiva do desenvolvedor.
+
+### Conceitos Fundamentais
+
+#### 1. **Agent** — O Orquestrador Inteligente
+
+Um **agent** é um modelo de linguagem grande (LLM) equipado com:
+- Acesso a um conjunto de **ferramentas** (Bash, Read, Write, Grep, etc.)
+- Capacidade de **raciocínio multi-passo** — compreender o problema, explorar a codebase, tomar decisões
+- **Autonomia controlada** — executa tarefas sem intervenção humana, mas dentro de limites bem definidos
+
+Neste projeto, agents especializados foram usados para:
+- Revisar código em busca de vulnerabilidades de segurança
+- Analisar PRs e identificar problemas arquiteturais
+- Escrever testes automatizados
+- Instrumentar observabilidade (OpenTelemetry)
+- Criar migrações de banco de dados
+
+**Por que agents importam:** Diferentemente de assistentes conversacionais, agents conseguem:
+- Explorar ativamente a codebase para coletar contexto
+- Usar ferramentas para validar hipóteses
+- Executar múltiplas tarefas em sequência lógica
+- Reportar achados estruturados e argumentados
+
+#### 2. **Skill** — A Especialização Vertical
+
+Uma **skill** é uma instrução especifica que **prepara um agent** para um domínio ou tarefa particular. Ela define:
+- **O contexto** — qual problema a skill resolve
+- **Quando ativar** — padrões de keywords que disparam a skill
+- **Como proceder** — passos estruturados ou diretivas de abordagem
+- **Ferramentas permitidas** — quais recursos o agent pode acessar
+
+**Exemplo de skill neste projeto:** `security-review` — quando um developer pede para "revisar segurança" ou "verificar vulnerabilidades", a skill ativa e instrui o agent a:
+1. Explorar a codebase para identificar padrões de risco
+2. Analisar integração com RabbitMQ (serialização, injeção de mensagens)
+3. Verificar autenticação e autorização em endpoints
+4. Revisar variáveis de ambiente e secrets
+5. Reportar achados com severidade e recomendações
+
+**Por que skills importam:**
+- **Especificidade** — cada skill é otimizada para um problema
+- **Consistência** — mesma abordagem toda vez que a skill é ativada
+- **Reutilização** — skills podem ser compartilhadas entre projetos
+- **Auditoria** — é possível rastrear qual skill foi usada e em qual contexto
+
+#### 3. **Harness** — O Plano de Execução
+
+O **harness** é a camada de orquestração que:
+- Monitora a entrada do desenvolvedor em busca de triggers de skills
+- Aloca um agent apropriado para a tarefa
+- Fornece contexto do projeto (arquivos, git history, configurações)
+- Executa tools sob permissões do usuário
+- Coleta e organiza resultados
+
+No projeto, o harness é gerenciado por **Claude Code**, que oferece:
+- Integração nativa com git e filesystem
+- Suporte a múltiplos agentes especializados
+- Controle granular de permissões
+- Logging estruturado de tudo que o agent faz
+
+### Agents e Skills Usados Neste Projeto
+
+#### 🔒 **Security Review Agent**
+
+**Skill:** `security-review`
+
+**Ativado quando:** Developer pede para revisar segurança, vulnerabilidades ou fazer auditoria de segurança
+
+**O que faz:**
+```
+├─ Analisa endpoints HTTP para autenticação/autorização
+├─ Verifica integração com RabbitMQ
+│  ├─ Serialização de mensagens (tipos de payload)
+│  ├─ Injeção de mensagens (validação de entrada)
+│  └─ Autenticação do broker
+├─ Audita gerenciamento de secrets
+│  ├─ Variáveis de ambiente
+│  ├─ Credenciais em logs
+│  └─ Hardcoding de passwords
+├─ Revisa configurações de banco de dados
+│  ├─ Connection strings
+│  ├─ SQL Injection risks
+│  └─ Permissões de usuário
+├─ Valida OpenTelemetry (evita vazamento de dados sensíveis em traces)
+└─ Emite relatório com severidade: CRÍTICA | ALTA | MÉDIA | BAIXA
+```
+
+**Exemplo de uso:** Após implementar toda a arquitetura de RabbitMQ, o agent foi ativado para validar se não havia brechas de segurança em serialização, autenticação ou autorização.
+
+**Resultado neste projeto:** Identificou que headers de trace HTTP poderiam conter dados sensíveis; recomendou sanitização antes de exportar para Jaeger.
+
+---
+
+#### 👨‍💼 **Code Review Agent**
+
+**Skill:** `revisar-codigo`
+
+**Ativado quando:** Developer pede "code review", "revise este arquivo", "tem algum problema aqui?"
+
+**O que faz:**
+```
+├─ Análise de qualidade de código
+│  ├─ Padrões de nomenclatura
+│  ├─ Complexidade ciclomática
+│  ├─ Duplicação de código
+│  └─ SOLID principles
+├─ Detecção de bugs potenciais
+│  ├─ Null reference exceptions
+│  ├─ Off-by-one errors
+│  ├─ Race conditions
+│  └─ Memory leaks
+├─ Violações arquiteturais
+│  ├─ Camadas cruzando dependências
+│  ├─ Acoplamento excessivo
+│  └─ God objects
+├─ Oportunidades de refatoração
+└─ Conformidade com padrões do projeto (Clean Architecture, etc.)
+```
+
+**Exemplo de uso:** Quando toda a lógica de Outbox foi implementada, o agent foi usado para revisar se havia oportunidades de reutilização ou padrões anti-pattern.
+
+**Resultado neste projeto:** Sugeriu consolidação de retry logic em um pipeline único de Polly, evitando duplicação.
+
+---
+
+#### 🧪 **Test Writer Agent**
+
+**Skill:** `escrever-testes`
+
+**Ativado quando:** Developer pede para "testar", "escrever testes", "cobrir com testes"
+
+**O que faz:**
+```
+├─ Análise de cobertura existente
+├─ Identificação de gaps de teste
+├─ Geração de testes unitários
+│  ├─ Casos happy path
+│  ├─ Edge cases
+│  └─ Exception handling
+├─ Testes de integração
+│  ├─ Banco de dados (in-memory ou testcontainers)
+│  ├─ Mensageria (mock ou broker de teste)
+│  └─ APIs externas
+└─ Testes de contrato (entre serviços)
+```
+
+**Exemplo de uso:** Para validar que o Outbox Pattern funcionava corretamente, o agent gerou testes que simulavam falhas de RabbitMQ e verificavam que mensagens eram retidas e enviadas na recuperação.
+
+**Resultado neste projeto:** Suite de testes que validam resiliência sem depender de infraestrutura externa.
+
+---
+
+#### 📊 **OpenTelemetry Instrumentation Agent**
+
+**Skill:** `adicionar-metrica-otel`
+
+**Ativado quando:** Developer pede para "adicionar métrica", "instrumentar", "adicionar observabilidade", "criar span"
+
+**O que faz:**
+```
+├─ Identifica pontos-chave para instrumentação
+│  ├─ Handlers de negócio
+│  ├─ Operações de I/O (banco, broker)
+│  └─ Blocos críticos
+├─ Seleciona tipo de métrica
+│  ├─ Counter (ocorrências)
+│  ├─ Histogram (latência, distribuição)
+│  ├─ Gauge (snapshots)
+│  └─ Baggage (contexto)
+├─ Cria spans com atributos semânticos
+│  ├─ db.system, db.operation
+│  ├─ messaging.* (RabbitMQ)
+│  ├─ http.* (requisições)
+│  └─ custom attributes
+└─ Garante que atributos não expõem dados sensíveis
+```
+
+**Exemplo de uso:** Para cada worker de background (OutboxRelayWorker, SagaTimeoutWorker), o agent adicionou spans detalhados que rastreavam cada ciclo e permitiam análise em Jaeger.
+
+**Resultado neste projeto:** Visibilidade completa de operações assíncronas sem código boilerplate manual.
+
+---
+
+#### 🗄️ **EF Core Migration Agent**
+
+**Skill:** `criar-migracao-ef` (order-service específico)
+
+**Ativado quando:** Developer pede para "criar migration", "adicionar coluna", "alterar tabela", "novo índice"
+
+**O que faz:**
+```
+├─ Analisa modelo de domínio (Entidades, DbContext)
+├─ Gera migrations EF Core idempotentes
+├─ Cria índices otimizados
+│  ├─ Compostos para WHERE + ORDER BY
+│  ├─ Filtered (ex: idx WHERE Status = PENDING)
+│  └─ Inclusos (covering indexes)
+├─ Valida backward compatibility
+└─ Documenta via comentários de migration
+```
+
+**Exemplo de uso:** Quando o padrão Outbox foi implementado, o agent criou migrations que:
+- Adicionaram `OutboxMessages` e `InboxMessages` tables
+- Criaram índices em `Status` para queries do relay worker
+- Garantiram que migration anterior (Orders) não era alterada (append-only)
+
+**Resultado neste projeto:** Schema evoluiu de forma segura sem risco de data loss.
+
+---
+
+#### 🏗️ **Feature Implementation Agent**
+
+**Skill:** `adicionar-feature`
+
+**Ativado quando:** Developer pede para "implementar", "adicionar", "criar" algo novo
+
+**O que faz:**
+```
+├─ Compreende o requisito de negócio
+├─ Localiza arquivos relevantes
+├─ Sugere abordagem arquitetural
+├─ Implementa código
+│  ├─ Segue padrões do projeto
+│  ├─ Mantém camadas de Clean Architecture
+│  └─ Integra com infraestrutura existente
+├─ Adiciona testes
+├─ Instrumenta observabilidade
+└─ Atualiza documentação
+```
+
+**Exemplo de uso:** Implementação do **SagaTimeoutWorker** — o agent entendeu o padrão, criou a classe em Application, adicionou DI em Infrastructure, criou testes e adicionou spans de observabilidade.
+
+**Resultado neste projeto:** Feature completa, testada, instrumentada e documentada sem revisões múltiplas.
+
+---
+
+### Vantagens de Usar Agents para Desenvolvimento
+
+#### 1. **Velocidade de Implementação**
+Problemas simples (adicionar métrica, criar migration) são resolvidos em segundos em vez de minutos.
+
+#### 2. **Qualidade Garantida**
+Cada skill usa práticas validadas (security review, test coverage, observabilidade obrigatória). Código sai com qualidade mais consistente.
+
+#### 3. **Redução de Carga Cognitiva**
+Developer foca em decisões arquiteturais e lógica de negócio; tasks repetitivas são automatizadas.
+
+#### 4. **Documentação Automática**
+Agents geram commits bem descritos, comentários de código e documentação de mudanças.
+
+#### 5. **Rastreabilidade**
+É possível saber quais agents executaram quais modificações, quando e por quê.
+
+#### 6. **Aprendizado Contínuo**
+Skills podem ser ajustadas baseadas em feedback; padrões melhores são incorporados incrementalmente.
+
+### Como Agents Foram Usados Neste Projeto
+
+**Fase 1: Validação** — Após projeto pronto em nível de produção
+- **Security Review:** Uma auditoria completa identificou potenciais riscos
+- **Code Review:** Código foi analisado para oportunidades de refatoração
+- **Test Coverage:** Gaps de teste foram identificados e preenchidos
+
+**Fase 2: Correções Pontuais** — Após validação
+- **Migrations:** Novas colunas e índices criados automaticamente
+- **Observabilidade:** Novos spans e métricas adicionadas com precisão
+- **Bug Fixes:** Correções de segurança implementadas e testadas
+
+### Por Que Essa Abordagem É Importante Hoje
+
+#### 1. **Escalabilidade de Engenharia**
+Um desenvolvedor pode manter múltiplos serviços usando agents para tarefas repetitivas.
+
+#### 2. **Redução de Debt Técnico**
+Código é revisado, testado e instrumentado desde o início, prevenindo acúmulo de problemas.
+
+#### 3. **Segurança Contínua**
+Agents podem executar auditorias de segurança em cadência regular (nightly, a cada PR, etc.).
+
+#### 4. **Padronização**
+Skills garantem que padrões de projeto são mantidos consistentemente.
+
+#### 5. **Onboarding Acelerado**
+Novos desenvolvedores podem contar com agents para orientação sobre padrões e arquitetura.
+
+#### 6. **Produtividade**
+Reduz overhead de code review manual, feedback loops e iterações até achatar a curva de qualidade.
+
+### Integração com Workflow Existente
+
+Agents funcionam **complementarmente** ao workflow tradicional:
+
+```text
+Developer                                    Agent
+    |                                          |
+    ├─ Escreve lógica de negócio              |
+    ├─ Toma decisões arquiteturais           |
+    ├─ Revisa PRs (humano) ←────────────────┤
+    │                                          |
+    └─ Pede "security review"  ──────────────┤─ Executa auditoria
+                                              |─ Identifica riscos
+                                              |─ Gera relatório
+                                              |
+    ├─ Integra recomendações
+    ├─ Pede "add tests"        ──────────────┤─ Gera suite de testes
+                                              |─ Valida cobertura
+                                              |
+    └─ Merges para main ←─────────────────────┤ Notifica sucesso
+```
+
+### Limitações e Boas Práticas
+
+#### ✅ O que Agents Fazem Bem
+
+- Tarefas estruturadas e repetitivas
+- Análise de código em busca de padrões conhecidos
+- Geração de testes para lógica de negócio clara
+- Instrumentação de observabilidade
+
+#### ⚠️ O que Requer Supervisão Humana
+
+- Decisões arquiteturais complexas
+- Trade-offs entre padrões concorrentes
+- Mudanças que afetam contrato de API
+- Segurança crítica (sempre revisar análises de vulnerabilidade)
+
+#### 🎯 Melhores Práticas
+
+1. **Defina Skills com Critério Claro** — ativar skill apenas quando o contexto é apropriado
+2. **Sempre Revise** — agents augmentam, não substituem, julgamento humano
+3. **Incremente Skills** — comece simples, expanda conforme aprende o que funciona
+4. **Documente Decisões** — por quê aquela skill foi usada e o que fez
+
+---
 
 Este projeto foi desenvolvido com base em estudos, documentações oficiais, artigos e conteúdos da comunidade sobre arquitetura distribuída, microsserviços, observabilidade e padrões de integração.
 
