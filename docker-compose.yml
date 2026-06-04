@@ -40,8 +40,8 @@ services:
   # =====================
   fraud-service:
     build: ./fraud-service
-    # ports:
-    #   - "8000:8000"
+    ports:
+     - "8088:8088"
     depends_on:
       mongodb:
         condition: service_healthy

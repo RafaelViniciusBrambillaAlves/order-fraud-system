@@ -23,3 +23,16 @@ opentelemetry-propagator-b3==1.24.0
 
 opentelemetry-instrumentation-pymongo
 opentelemetry.instrumentation.aio_pika
+
+# Framework de Testes
+pytest>=7.4
+pytest-asyncio>=0.21
+pytest-mock>=3.11
+pytest-cov>=4.1
+
+# Utilidades de Teste
+freezegun>=1.2 # Controle de data/hora para testes com timestamps
+mongomock>=4.1   
+
+# Tipos e Validação
+mypy>=1.4  
