@@ -170,7 +170,7 @@ class OrderCreatedConsumer:
 
                     span.set_attribute("message.duplicate", False)
                     span.set_attribute("consumer.duration_ms", round(duration * 1000, 2))
-                    span.set_attribute(Status(StatusCode.OK))
+                    span.set_status(Status(StatusCode.OK))
 
                     fraud_metrics.message_processing_duration.record(
                         duration,
